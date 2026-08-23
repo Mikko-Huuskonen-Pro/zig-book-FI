@@ -1,0 +1,1434 @@
+---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+translation:
+  source: Chapters/03-structs.qmd
+  source_sha256: dff3b945955ebaed24c827d7830cf6e24492eb60b25bcfec5e33a3c2fa2e66d7
+  status: complete
+---
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+# Ohjausvirta, structit, moduulit ja tyypit
+
+Käsittelimme edellisessä luvussa paljon Zigin syntaksia,
+erityisesti @sec-root-file ja @sec-main-file.
+Meidän täytyy kuitenkin vielä käsitellä muita hyvin tärkeitä
+kielen elementtejä. Elementtejä, joita käytät jatkuvasti päivittäisessä
+työssäsi.
+
+Aloitamme tämän luvun käsittelemällä Zigin ohjausvirtaan liittyviä avainsanoja ja rakenteita
+(esimerkiksi silmukoita ja if-lauseita).
+Sen jälkeen puhumme structeista ja siitä, miten niitä voi käyttää
+perustason olio-ohjelmointiin (OOP) Zigissä. Käsittelemme myös
+tyyppipäättelyä ja tyyppimuunnoksia.
+Lopuksi käsittelemme moduuleja ja niiden suhdetta
+structeihin.
+
+
+
+## Ohjausvirta {#sec-zig-control-flow}
+
+Joskus sinun täytyy tehdä päätöksiä ohjelmassasi. Ehkä sinun täytyy päättää,
+suoritetaanko tietty koodinpätkä vai ei. Tai ehkä
+sinun täytyy soveltaa samaa operaatiota arvojen jonolle. Tällaiset tehtävät
+edellyttävät rakenteita, jotka pystyvät muuttamaan ohjelmamme "ohjausvirtaa".
+
+Tietojenkäsittelytieteessä termi "ohjausvirta" (control flow) viittaa yleensä siihen järjestykseen, jossa lausekkeet (tai komennot)
+evaluoidaan tietyssä kielessä tai ohjelmassa. Termiä käytetään myös viittaamaan
+rakenteisiin, jotka pystyvät muuttamaan komennojen "evaluointijärjestystä"
+tietyssä kielessä tai ohjelmassa.
+
+Nämä rakenteet tunnetaan paremmin
+termien, kuten silmukat, if/else-lauseet ja switch-lauseet, joukkona. Eli
+silmukat ja if/else-lauseet ovat esimerkkejä rakenteista, jotka voivat muuttaa ohjelmamme "ohjausvirtaa".
+Myös avainsanat `continue` ja `break` ovat esimerkkejä symboleista,
+jotka voivat muuttaa evaluointijärjestystä, koska ne voivat siirtää ohjelman silmukan seuraavaan iteratioon
+tai saada silmukan pysähtymään kokonaan.
+
+
+### If/else-lauseet
+
+If/else-lause suorittaa "ehdollisen virtausoperaation".
+Ehdollinen virtauksen hallinta (tai valintahallinta) antaa sinun suorittaa
+tai ohittaa tietyn komennolohkon loogisen ehdon perusteella.
+Monet ohjelmoijat ja tietojenkäsittelytieteen ammattilaiset käyttävät
+tässä tapauksessa myös termiä "haarautuminen" (branching).
+Pohjimmiltaan if/else-lause antaa meidän käyttää loogisen testin tulosta
+päättääksemme, suoritetaanko tietty komennolohko vai ei.
+
+Zigissä kirjoitamme if/else-lauseet käyttämällä avainsanoja `if` ja `else`.
+Aloitamme `if`-avainsanalla, jota seuraa looginen testi sulkujen sisällä,
+ja sen jälkeen aaltosulkeet, jotka sisältävät koodirivit,
+jotka suoritetaan, jos looginen testi palauttaa arvon `true`.
+
+Sen jälkeen voit valinnaisesti lisätä `else`-lauseen. Lisää `else`-avainsana
+ja sen jälkeen aaltosulkeet, joiden sisällä on koodirivit,
+jotka suoritetaan, jos `if`-kohdassa määritelty looginen testi palauttaa `false`.
+
+Alla olevassa esimerkissä testaamme, sisältääkö olio `x` luvun,
+joka on suurempi kuin 10. Konsoliin tulostetun tulosteen perusteella
+tiedämme, että looginen testi palautti `false`. Koska konsolin tuloste
+vastaa if/else-lauseen `else`-haarassa olevaa koodiriviä.
+
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const x = 5;
+if (x > 10) {
+    try stdout.print("x > 10!\n", .{});
+} else {
+    try stdout.print("x <= 10!\n", .{});
+}
+try stdout.flush();
+```
+
+
+
+### Switch-lauseet {#sec-switch}
+
+Switch-lauseet ovat saatavilla myös Zigissä, ja niiden syntaksi on hyvin samankaltainen kuin Rustin switch-lauseella.
+Kuten odotat, kirjoitamme switch-lauseen Zigissä käyttämällä `switch`-avainsanaa.
+Annamme arvon, jota haluamme "switchata", sulkujen sisällä.
+Sen jälkeen listaamme mahdolliset kombinaatiot (tai "haarat")
+aaltosulkeiden sisällä.
+
+Katsotaan alla olevaa koodiesimerkkiä. Näet, että
+luon enum-tyypin nimeltä `Role`. Puhumme enumeista lisää @sec-enum.
+Yhteenvetona tämä `Role`-tyyppi listaa erilaisia rooleja kuvitteellisessa
+yrityksessä, kuten `SE` (Software Engineer), `DE` (Data Engineer), `PM` (Product Manager)
+jne.
+
+Huomaa, että käytämme `role`-olion arvoa
+switch-lauseessa selvittääksemme, minkä alueen tallennamme `area`-muuttujaolioon.
+Huomaa myös, että käytämme tyyppipäättelyä switch-lauseen sisällä pisteellä,
+kuten kuvaamme @sec-type-inference.
+Tämä saa `zig`-kääntäjän päättelemään arvojen (`PM`, `SE` jne.) oikean datatyypin puolestamme.
+
+Huomaa myös, että ryhmittelemme useita arvoja samaan switch-lauseen haaraan.
+Erotamme jokaisen mahdollisen arvon pilkulla. Esimerkiksi jos `role` sisältää joko `DE` tai `DA`,
+`area`-muuttuja sisältäisi arvon `"Data & Analytics"` arvojen `"Platform"` tai `"Sales"` sijaan.
+
+```{zig}
+#| build_type: "run"
+#| auto_main: false
+const std = @import("std");
+const Role = enum {
+    SE, DPE, DE, DA, PM, PO, KS
+};
+
+pub fn main(init: std.process.Init) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    var area: []const u8 = undefined;
+    const role = Role.SE;
+    switch (role) {
+        .PM, .SE, .DPE, .PO => {
+            area = "Platform";
+        },
+        .DE, .DA => {
+            area = "Data & Analytics";
+        },
+        .KS => {
+            area = "Sales";
+        },
+    }
+    try stdout.print("{s}\n", .{area});
+    try stdout.flush();
+}
+```
+
+
+#### Switch-lauseiden täytyy kattaa kaikki mahdollisuudet
+
+Erittäin tärkeä piirre Zigin switch-lauseissa
+on, että niiden täytyy kattaa kaikki olemassa olevat mahdollisuudet.
+Toisin sanoen kaikki mahdolliset arvot, joita `role`-oliossa voi olla,
+on käsiteltävä eksplisiittisesti tässä switch-lauseessa.
+
+Koska `role`-oliolla on tyyppi `Role`, ainoat mahdolliset arvot
+tässä oliossa ovat `PM`, `SE`, `DPE`, `PO`, `DE`, `DA` ja `KS`.
+Tähän `role`-olioon ei voi tallentaa muita arvoja.
+Siten switch-lauseessa täytyy olla kombinaatio (haara) jokaiselle näistä arvoista.
+Tämä on se, mitä "kaikkien mahdollisuuksien kattaminen" tarkoittaa. Switch-lause kattaa
+jokaisen mahdollisen tapauksen.
+
+Et voi siis kirjoittaa switch-lausetta Zigissä ja jättää reunatapausta
+ilman eksplisiittistä toimintaa.
+Tämä on samankaltainen käyttäytyminen kuin Rustin switch-lauseissa, joissa myös
+täytyy käsitellä kaikki mahdolliset tapaukset.
+
+
+
+#### Else-haara
+
+Katso alla olevaa `dump_hex_fallible()`-funktiota esimerkkinä. Tämä funktio
+tulee Zig Standard Librarystä. Tarkemmin sanottuna moduulista
+[`debug.zig`](https://codeberg.org/ziglang/zig/src/branch/master/lib/std/debug.zig)[^debug-mod].
+Funktiossa on useita rivejä, mutta jätin ne pois keskittyäkseni pelkästään
+tässä funktiossa olevaan switch-lauseeseen. Huomaa, että tässä switch-lauseessa on neljä
+mahdollista tapausta (eli neljä eksplisiittistä haaraa). Huomaa myös, että käytimme `else`-haaraa
+tässä tapauksessa.
+
+`else`-haara switch-lauseessa toimii "oletushaarana".
+Aina kun switch-lauseessasi on useita tapauksia, joissa
+haluat soveltaa täsmälleen samaa toimintoa, voit käyttää `else`-haaraa.
+
+[^debug-mod]: <https://codeberg.org/ziglang/zig/src/branch/master/lib/std/debug.zig>
+
+```{zig}
+#| eval: false
+pub fn dump_hex_fallible(bytes: []const u8) !void {
+    // Many lines ...
+    switch (byte) {
+        '\n' => try writer.writeAll("␊"),
+        '\r' => try writer.writeAll("␍"),
+        '\t' => try writer.writeAll("␉"),
+        else => try writer.writeByte('.'),
+    }
+}
+```
+
+Monet ohjelmoijat käyttäisivät `else`-haaraa myös "ei tuettu" -tapauksen käsittelyyn.
+Eli tapaukseen, jota koodisi ei voi käsitellä kunnolla, tai tapaukseen, jota
+ei pitäisi "korjata". Voit siis käyttää `else`-haaraa panikoidaksesi (tai nostaaksesi virheen)
+ohjelmassasi pysäyttääksesi nykyisen suorituksen.
+
+Katso alla olevaa koodiesimerkkiä. Käsittelemme tapaukset,
+joissa `level`-olio on 1, 2 tai 3. Kaikki muut mahdolliset tapaukset eivät ole oletuksena tuettuja,
+ja seurauksena nostamme ajonaikaisen virheen tällaisissa tapauksissa `@panic()`-sisäänrakennetun funktion avulla.
+
+Huomaa myös, että tallennamme switch-lauseen tuloksen uuteen olioon nimeltä `category`.
+Tämä on toinen asia, jonka voit tehdä switch-lauseilla Zigissä. Jos haara
+tuottaa arvon tuloksena, voit tallentaa switch-lauseen tulosarvon
+uuteen olioon.
+
+```{zig}
+#| auto_main: true
+#| build_type: "lib"
+const level: u8 = 4;
+const category = switch (level) {
+    1, 2 => "beginner",
+    3 => "professional",
+    else => {
+        @panic("Not supported level!");
+    },
+};
+try stdout.print("{s}\n", .{category});
+try stdout.flush();
+```
+
+```
+thread 13103 panic: Not supported level!
+t.zig:9:13: 0x1033c58 in main (switch2)
+            @panic("Not supported level!");
+            ^
+```
+
+
+
+#### Arvoalueiden käyttö switch-lauseessa
+
+Lisäksi voit käyttää arvoalueita switch-lauseissa.
+Voit luoda switch-lauseeseen haaran, jota käytetään
+aina kun syötearvo on määritellyllä alueella. Nämä "alueilmaisut"
+luodaan operaattorilla `...`. On tärkeää
+korostaa, että tämän operaattorin luomat alueet ovat
+molemmista päistään inclusiivisia.
+
+Voisin esimerkiksi helposti muuttaa edellisen koodiesimerkin tukemaan kaikkia
+tasoja välillä 0–100. Näin:
+
+```{zig}
+#| build_type: "run"
+#| auto_main: true
+const level: u8 = 4;
+const category = switch (level) {
+    0...25 => "beginner",
+    26...75 => "intermediary",
+    76...100 => "professional",
+    else => {
+        @panic("Not supported level!");
+    },
+};
+try stdout.print("{s}\n", .{category});
+try stdout.flush();
+```
+
+Tämä on siistiä, ja se toimii myös merkkialueilla. Voisin
+yksinkertaisesti kirjoittaa `'a'...'z'` vastaamaan mitä tahansa pientä kirjainta,
+ja se toimisi hyvin.
+
+
+#### Nimetyt switch-lauseet
+
+@sec-blocks puhuimme lohkojen nimeämisestä ja myös siitä, miten näitä tunnisteita
+käytetään arvon palauttamiseen lohkosta. No, `zig`-kääntäjän versiosta 0.14.0 eteenpäin
+voit myös antaa tunnisteita switch-lauseille, mikä mahdollistaa lähes
+C:n `goto`-kaltaisen mallin toteuttamisen.
+
+Jos annat switch-lauseelle tunnisteen `xsw`, voit käyttää tätä
+tunnistetta yhdessä `continue`-avainsanan kanssa palataksesi switch-lauseen alkuun.
+Alla olevassa esimerkissä suoritus palaa switch-lauseen alkuun kaksi kertaa
+ennen kuin se päättyy haaraan `3`.
+
+```{zig}
+#| auto_main: true
+#| build_type: "lib"
+xsw: switch (@as(u8, 1)) {
+    1 => {
+        try stdout.print("First branch\n", .{});
+        continue :xsw 2;
+    },
+    2 => continue :xsw 3,
+    3 => return,
+    4 => {},
+    else => {
+        try stdout.print(
+            "Unmatched case, value: {d}\n", .{@as(u8, 1)}
+        );
+        try stdout.flush();
+    },
+}
+```
+
+
+### `defer`-avainsana {#sec-defer}
+
+Zigissä on `defer`-avainsana, jolla on erittäin tärkeä rooli ohjausvirrassa ja myös resurssien vapauttamisessa.
+Yhteenvetona `defer`-avainsana antaa sinun rekisteröidä lausekkeen suoritettavaksi, kun poistut nykyisestä laajuudesta.
+
+Tässä vaiheessa saatat yrittää verrata Zigin `defer`-avainsanaa Go-kielen vastineeseen
+(eli [Go:llakin on `defer`-avainsana](https://go.dev/tour/flowcontrol/12)).
+Go:n `defer`-avainsana kuitenkin käyttäytyy hieman eri tavalla
+kuin Zigin vastine. Tarkemmin sanottuna Go:n `defer`-avainsana siirtää aina lausekkeen suoritettavaksi
+**nykyisen funktion lopussa**.
+
+Jos mietit tätä tarkasti, huomaat, että "nykyisen funktion loppu" on jotain
+hieman erilaista kuin "nykyisen laajuuden loppu". Ole siis varovainen vertaillessasi näitä kahta
+avainsanaa keskenään. Yksi Zig-funktio voi sisältää monia eri laajuuksia, ja siksi
+`defer`-lauseke voidaan suorittaa funktion eri kohdissa riippuen siitä, missä laajuudessa
+olet.
+
+Ensimmäisenä esimerkkinä katso alla olevaa koodia. Kun `main()`-funktiota suoritetaan, lauseke,
+joka tulostaa viestin "Exiting function ...", suoritetaan vasta kun funktio poistuu
+laajuudestaan.
+
+
+```{zig}
+#| auto_main: false
+#| build_type: "lib"
+const std = @import("std");
+pub fn main() !void {
+    defer std.debug.print(
+        "Exiting function ...\n", .{}
+    );
+    std.debug.print("Adding some numbers ...\n", .{});
+    const x = 2 + 2; _ = x;
+    std.debug.print("Multiplying ...\n", .{});
+    const y = 2 * 8; _ = y;
+}
+```
+
+```
+Adding some numbers ...
+Multiplying ...
+Exiting function ...
+```
+
+Voimme siis käyttää `defer`-avainsanaa ilmoittamaan lausekkeen, joka suoritetaan,
+kun koodisi poistuu nykyisestä laajuudesta. Jotkut ohjelmoijat tulkitsevat ilmaisun "nykyisen laajuuden loppu"
+tarkoittavan "nykyisen laajuuden päättymistä". Tämä tulkinta ei kuitenkaan välttämättä ole täysin oikea riippuen siitä,
+mitä pidät "nykyisen laajuuden päättymisenä".
+
+Mitä pidät **nykyisen laajuuden lopuksi**? Onko se laajuuden sulkeva aaltosulje (`}`)?
+Onko se, kun funktion viimeinen lauseke suoritetaan? Onko se, kun funktio palaa edelliseen laajuuteen?
+Jne. Esimerkiksi ei olisi oikein tulkita "nykyisen laajuuden loppua" laajuuden sulkevaksi
+aaltosulkeeksi, koska funktio voi poistua aikaisemmalta kohdalta kuin tästä
+aaltosulkeesta (esim. virhearvo syntyi aiemmin funktiossa;
+funktio saavutti aikaisemman return-lausekkeen; jne.). Ole siis varovainen tämän tulkinnan kanssa.
+
+Jos muistat @sec-blocks käsitellyt asiat, kielessä on useita rakenteita,
+jotka luovat omat erilliset laajuutensa. For-/while-silmukat, if/else-lauseet,
+funktiot, tavalliset lohkot jne. Tämä vaikuttaa myös `defer`-tulkintaan.
+Jos käytät `defer`-avainsanaa for-silmukan sisällä, annettu lauseke
+suoritetaan aina, kun kyseinen for-silmukka poistuu omasta laajuudestaan.
+
+Ennen kuin jatkamme, on syytä korostaa, että `defer`-avainsana on "ehdoton defer".
+Tämä tarkoittaa, että annettu lauseke suoritetaan riippumatta siitä, miten koodi poistuu
+nykyisestä laajuudesta. Koodisi voi esimerkiksi poistua nykyisestä laajuudesta virhearvon
+syntymisen, return-lausekkeen tai break-lausekkeen vuoksi jne.
+
+
+
+### `errdefer`-avainsana {#sec-errdefer1}
+
+Edellisessä osiossa käsittelimme `defer`-avainsanaa, jolla voit
+rekisteröidä lausekkeen suoritettavaksi nykyisen laajuuden lopussa.
+Tällä avainsanalla on kuitenkin veli, `errdefer`-avainsana. Kun `defer`
+on "ehdoton defer", `errdefer`-avainsana on "ehdollinen defer".
+Tämä tarkoittaa, että annettu lauseke suoritetaan vain, kun poistut nykyisestä
+laajuudesta hyvin tietyssä tilanteessa.
+
+Tarkemmin sanottuna `errdefer`-avainsanalle annettu lauseke suoritetaan vain, kun nykyisessä laajuudessa tapahtuu virhe.
+Jos funktio (tai for-/while-silmukka, if/else-lause jne.) poistuu nykyisestä laajuudesta
+normaalissa tilanteessa ilman virheitä, `errdefer`-avainsanalle annettua lauseketta ei suoriteta.
+
+Tämä tekee `errdefer`-avainsanasta yhden monista Zigin virheenkäsittelytyökaluista.
+Tässä osiossa olemme enemmän kiinnostuneita `errdefer`-avainsanan ohjausvirtaan liittyvistä puolista.
+Käsittelemme `errdefer`-avainsanaa myöhemmin virheenkäsittelytyökaluna @sec-errdefer2.
+
+Alla oleva koodiesimerkki havainnollistaa kolmea asiaa:
+
+- `defer` on "ehdoton defer", koska annettu lauseke suoritetaan riippumatta siitä, miten funktio `foo()` poistuu omasta laajuudestaan.
+- `errdefer` suoritetaan, koska funktio `foo()` palautti virhearvon.
+- `defer`- ja `errdefer`-lausekkeet suoritetaan LIFO-järjestyksessä (*last in, first out*).
+
+```{zig}
+#| auto_main: false
+#| build_type: "lib"
+const std = @import("std");
+fn foo() !void { return error.FooError; }
+pub fn main() !void {
+    var i: usize = 1;
+    errdefer std.debug.print("Value of i: {d}\n", .{i});
+    defer i = 2;
+    try foo();
+}
+```
+
+```
+Value of i: 2
+error: FooError
+/t.zig:6:5: 0x1037e48 in foo (defer)
+    return error.FooError;
+    ^
+```
+
+
+Kun sanon, että "defer-lausekkeet" suoritetaan LIFO-järjestyksessä (last in, first out), tarkoitan, että
+viimeinen `defer`- tai `errdefer`-lauseke koodissa suoritetaan ensimmäisenä.
+Voit tulkita tämän myös niin, että "defer-lausekkeet" suoritetaan alhaalta ylös tai
+viimeisestä ensimmäiseen.
+
+Jos siis vaihdan `defer`- ja `errdefer`-lausekkeiden järjestystä, huomaat, että
+konsoliin tulostuva `i`:n arvo muuttuu arvoksi 1. Tämä ei tarkoita, että
+`defer`-lauseketta ei olisi suoritettu. Se tarkoittaa, että `defer`-lauseke
+suoritettiin vasta `errdefer`-lausekkeen jälkeen. Alla oleva koodiesimerkki havainnollistaa tämän:
+```{zig}
+#| auto_main: false
+#| build_type: "lib"
+const std = @import("std");
+fn foo() !void { return error.FooError; }
+pub fn main() !void {
+    var i: usize = 1;
+    defer i = 2;
+    errdefer std.debug.print("Value of i: {d}\n", .{i});
+    try foo();
+}
+```
+
+```
+Value of i: 1
+error: FooError
+/t.zig:6:5: 0x1037e48 in foo (defer)
+    return error.FooError;
+    ^
+```
+
+
+
+
+### For-silmukat
+
+Silmukka antaa sinun suorittaa samat koodirivit useita kertoja,
+luoden näin "toistotilan" ohjelmasi suoritusvirtaan.
+Silmukat ovat erityisen hyödyllisiä, kun haluamme toistaa saman funktion
+(tai saman komennosarjan) eri syötteille.
+
+Zigissä on erilaisia silmukkatyyppejä. Kaikista tärkein on kuitenkin todennäköisesti *for-silmukka*. For-silmukkaa
+käytetään saman koodinpätkän soveltamiseen siivun tai taulukon alkioiden yli.
+
+Zigin for-silmukat käyttävät syntaksia, joka voi olla outo ohjelmoijille, jotka tulevat
+muista kielistä. Aloitat `for`-avainsanalla, sitten
+listaat alkiot, joiden yli haluat iteroida,
+sulkujen sisällä. Sen jälkeen putkien (`|`) sisällä
+ilmoitat tunnisteen, joka toimii iteraattorinasi eli
+silmukan "toistoindeksinä".
+
+```{zig}
+#| eval: false
+for (items) |value| {
+    // code to execute
+}
+```
+
+Sen sijaan, että käyttäisimme syntaksia `(value in items)`,
+Zigissä for-silmukat käyttävät syntaksia `(items) |value|`. Alla olevassa esimerkissä
+iteroimme olioon `name` tallennetun taulukon alkioiden yli ja tulostamme
+konsoliin kunkin merkin desimaaliesityksen.
+
+Halutessamme voisimme iteroida myös siivun (tai osan)
+taulukosta iteroiden koko `name`-olioon tallennettua taulukkoa.
+Käytä vain aluevalitsinta valitaksesi haluamasi osan. Esimerkiksi
+voisin antaa for-silmukalle lausekkeen `name[0..3]` iteroidakseni
+vain taulukon kolme ensimmäistä alkiota.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const name = [_]u8{'P','e','d','r','o'};
+for (name) |char| {
+    try stdout.print("{d} | ", .{char});
+}
+try stdout.flush();
+```
+
+Yllä olevassa esimerkissä käytämme iteraattorina kunkin taulukon alkion
+itse arvoa. Monissa tilanteissa tarvitsemme kuitenkin indeksin itse arvojen sijaan.
+
+Voit tehdä sen antamalla for-silmukalle toisen iteroitavan joukon.
+Tarkemmin sanottuna annat for-silmukalle aluevalitsimen `0..`. Eli
+voit käyttää kahta eri iteraattoria samanaikaisesti for-silmukassa Zigissä.
+
+Muista kuitenkin @sec-assignments, että jokainen Zigissä luomasi olio
+täytyy käyttää jollain tavalla. Jos ilmoitat kaksi iteraattoria
+for-silmukassasi, sinun täytyy käyttää molempia iteraattoreita for-silmukan rungossa.
+Jos haluat käyttää vain indeksi-iteraattoria etkä "arvo-iteraattoria",
+voit hylätä arvo-iteraattorin yhdistämällä
+arvoalkiot alaviivamerkkiin, kuten alla olevassa esimerkissä:
+
+
+```{zig}
+#| auto_main: true
+#| build_type: "ast"
+const name = "Pedro";
+for (name, 0..) |_, i| {
+    try stdout.print("{d} | ", .{i});
+}
+try stdout.flush();
+```
+
+```
+0 | 1 | 2 | 3 | 4 |
+```
+
+
+### While-silmukat
+
+While-silmukka luodaan `while`-avainsanalla. `for`-silmukka
+iteroi taulukon alkioiden yli, mutta `while`-silmukka
+toistaa jatkuvasti ja äärettömästi, kunnes sinun määrittämäsi looginen testi
+muuttuu epätodeksi.
+
+Aloitat `while`-avainsanalla, määrittelet loogisen
+lausekkeen sulkujen sisällä ja silmukan rungon
+aaltosulkeiden sisällä, kuten alla olevassa esimerkissä:
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+var i: u8 = 1;
+while (i < 5) {
+    try stdout.print("{d} | ", .{i});
+    i += 1;
+}
+try stdout.flush();
+```
+
+Voit myös määrittää while-silmukan alussa käytettävän kasvatuslausekkeen.
+Kirjoitamme kasvatuslausekkeen sulkujen sisään kaksoispisteen (`:`) jälkeen.
+Alla oleva koodiesimerkki havainnollistaa tätä toista mallia.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+var i: u8 = 1;
+while (i < 5) : (i += 1) {
+    try stdout.print("{d} | ", .{i});
+}
+try stdout.flush();
+```
+
+### `break`- ja `continue`-avainsanojen käyttö
+
+Zigissä voit eksplisiittisesti pysäyttää silmukan suorituksen tai hypätä silmukan seuraavaan iteratioon käyttämällä
+avainsanoja `break` ja `continue`. Seuraavassa koodiesimerkissä oleva `while`-silmukka on
+ensisilmäyksellä äärettömän silmukan, koska sulkujen sisällä oleva looginen arvo on aina `true`.
+Mutta mikä saa tämän `while`-silmukan pysähtymään, kun `i`-olio saavuttaa arvon
+10? `break`-avainsana!
+
+While-silmukan sisällä on if-lause, joka tarkistaa jatkuvasti, onko `i`-muuttuja
+yhtä suuri kuin 10. Koska kasvatamme `i`:n arvoa jokaisella while-silmukan iteratiolla,
+`i`-olio tulee lopulta yhtä suureksi kuin 10, ja silloin if-lause
+suorittaa `break`-lausekkeen, minkä seurauksena while-silmukan suoritus pysähtyy.
+
+Huomaa Zig Standard Libraryn `expect()`-funktion käyttö while-silmukan jälkeen.
+`expect()`-funktio on "assert"-tyyppinen funktio.
+Funktio tarkistaa, onko annettu looginen testi tosi. Jos on, funktio ei tee mitään.
+Muuten (eli looginen testi on epätosi) funktio nostaa assert-virheen.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+var i: usize = 0;
+while (true) {
+    if (i == 10) {
+        break;
+    }
+    i += 1;
+}
+try std.testing.expect(i == 10);
+try stdout.print("Everything worked!", .{});
+try stdout.flush();
+```
+
+Koska `zig`-kääntäjä suoritti tämän koodiesimerkin onnistuneesti
+ilman virheitä, tiedämme, että while-silmukan suorituksen jälkeen
+`i`-olio on yhtä suuri kuin 10. Jos se ei olisi yhtä suuri kuin 10, `expect()`
+olisi nostanut virheen.
+
+Seuraavassa esimerkissä on käyttötapaus
+`continue`-avainsanalle. If-lause tarkistaa jatkuvasti,
+onko nykyinen indeksi jaollinen kahdella. Jos on,
+hyppäämme silmukan seuraavaan iteratioon.
+Muuten silmukka tulostaa nykyisen indeksin konsoliin.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const ns = [_]u8{1,2,3,4,5,6};
+for (ns) |i| {
+    if ((i % 2) == 0) {
+        continue;
+    }
+    try stdout.print("{d} | ", .{i});
+}
+try stdout.flush();
+```
+
+
+
+## Funktioparametrit ovat muuttumattomia {#sec-fun-pars}
+
+Olemme jo käsitelleet paljon funktioiden määrittelyn syntaksia @sec-root-file ja @sec-main-file.
+Haluan kuitenkin korostaa erään mielenkiintoisen seikan funktioparametreista (eli funktioargumenteista) Zigissä.
+Yhteenvetona funktioparametrit ovat Zigissä muuttumattomia.
+
+Katso alla olevaa koodiesimerkkiä, jossa määrittelemme yksinkertaisen funktion, joka yrittää lisätä
+tietyn määrän syötteenä saamaansa kokonaislukuun ja palauttaa tuloksen. Jos katsot tarkasti
+funktion `add2()` runkoa, huomaat, että yritämme
+tallentaa tuloksen takaisin `x`-funktioargumenttiin.
+
+Toisin sanoen funktio ei ainoastaan käytä funktioargumentin `x`
+kautta saamaansa arvoa, vaan yrittää myös muuttaa tämän funktioargumentin arvoa tallentamalla yhteenlaskun tuloksen
+`x`:ään. Funktioargumentit ovat kuitenkin Zigissä muuttumattomia. Et voi muuttaa niiden arvoja etkä
+voi antaa niille arvoja funktion rungossa.
+
+Siksi alla oleva koodiesimerkki ei käännä onnistuneesti. Jos yrität kääntää
+tätä koodiesimerkkiä, saat käännösvirheilmoituksen siitä, että yrität muuttaa
+muuttumattoman (eli vakion) olion arvoa.
+
+```{zig}
+#| eval: false
+#| auto_main: false
+#| build_type: "lib"
+const std = @import("std");
+fn add2(x: u32) u32 {
+    x = x + 2;
+    return x;
+}
+
+pub fn main() !void {
+    const y = add2(4);
+    std.debug.print("{d}\n", .{y});
+}
+```
+
+```
+t.zig:3:5: error: cannot assign to constant
+    x = x + 2;
+    ^
+```
+
+
+### Ilmainen optimointi
+
+Jos funktioargumentti saa syötteenä olion, jonka datatyyppi on
+jokin @sec-primitive-data-types listatuista primitiivityypeistä,
+olio välitetään aina funktiolle arvona. Toisin sanoen olio
+kopioidaan funktion pinokehykseen.
+
+Jos syöteoliolla on kuitenkin monimutkaisempi datatyyppi, esimerkiksi
+struct-instanssi, taulukko tai union-arvo jne., `zig`-kääntäjä
+päättää puolestasi, mikä strategia on paras. `zig`-kääntäjä voi siis
+välittää olion funktiolle joko arvona tai viitteenä. Kääntäjä valitsee aina
+sinulle nopeamman strategian.
+Tämä ilmainen optimointi on mahdollista vain, koska funktioargumentit ovat
+muuttumattomia Zigissä.
+
+
+### Miten tämä este ylitetään
+
+Joissain tilanteissa saatat tarvita funktioargumentin arvon muuttamista
+suoraan funktion rungossa. Tämä tapahtuu useammin, kun välitämme
+C-structeja syötteenä Zig-funktioille.
+
+Tällaisessa tilanteessa voit ylittää tämän esteen käyttämällä osoitinta. Toisin sanoen
+sen sijaan, että välittäisit argumentille arvon, voit välittää "osoittimen arvoon".
+Voit muuttaa osoittimen osoittamaa arvoa dereferoimalla sen.
+
+Jos siis otamme aiemman `add2()`-esimerkkimme, voimme muuttaa
+funktioargumentin `x` arvoa funktion rungossa merkitsemällä `x`-argumentin
+"osoittimeksi `u32`-arvoon" (eli datatyypiksi `*u32`) `u32`-arvon sijaan.
+Tekemällä siitä osoittimen voimme vihdoin muuttaa tämän funktioargumentin arvoa suoraan
+funktion `add2()` rungossa. Näet, että alla oleva koodiesimerkki kääntyy onnistuneesti.
+
+```{zig}
+#| build_type: "lib"
+#| auto_main: false
+const std = @import("std");
+fn add2(x: *u32) void {
+    const d: u32 = 2;
+    x.* = x.* + d;
+}
+
+pub fn main() !void {
+    var x: u32 = 4;
+    add2(&x);
+    std.debug.print("Result: {d}\n", .{x});
+}
+```
+
+```
+Result: 6
+```
+
+
+Myös yllä olevassa koodiesimerkissä `x`-argumentti on edelleen muuttumaton. Tämä tarkoittaa, että itse osoitin on muuttumaton.
+Et voi siis muuttaa sen osoittamaa muistiosoitetta. Voit kuitenkin dereferoida osoittimen
+päästäksesi sen osoittamaan arvoon ja myös muuttaaksesi tätä arvoa tarvittaessa.
+
+
+
+
+
+## Structit ja OOP {#sec-structs-and-oop}
+
+Zig on kieleltään lähempänä C:tä (joka on proseduraalinen kieli)
+kuin C++:ta tai Javaa (jotka ovat olio-ohjelmointikieliä). Siksi Zigissä ei ole
+edistyneitä OOP-malleja (Object-Oriented Programming), kuten luokkia, rajapintoja tai
+luokkaperintää. OOP on kuitenkin Zigissä mahdollista struct-määrittelyjen avulla.
+
+Struct-määrittelyillä voit luoda (tai määritellä) uuden datatyypin Zigissä. Struct-määrittelyt toimivat samalla tavalla kuin C:ssä.
+Annat nimen tälle uudelle structille (tai luomasi uudelle datatyypille), sitten
+listaat structin datajäsenet. Voit myös
+rekisteröidä funktioita structin sisään, ja ne muuttuvat kyseisen structin (tai datatyypin) metodeiksi, jolloin jokaisella
+tällä uudella tyypillä luomallasi oliolla on aina nämä metodit käytettävissä ja liitettynä siihen.
+
+C++:ssa kun luomme uuden luokan, meillä on yleensä konstruktorimetodi (tai konstruktorifunktio), jota
+käytetään jokaisen kyseisen luokan olion rakentamiseen (tai instansioimiseen), ja meillä on myös
+destruktorimetodi (tai destruktorifunktio), joka vastaa kyseisen luokan
+jokaisen olion tuhoamisesta.
+
+Zigissä ilmoitamme structiemme konstruktori- ja destruktorimetodit
+yleensä määrittelemällä structin sisään `init()`- ja `deinit()`-metodit.
+Tämä on vain nimeämiskäytäntö, jonka löydät koko Zig Standard Librarystä.
+Zigissä structin `init()`-metodi on siis yleensä structin edustaman luokan konstruktorimetodi.
+`deinit()`-metodi puolestaan on metodi, jota käytetään kyseisen structin olemassa olevan instanssin tuhoamiseen.
+
+`init()`- ja `deinit()`-metodeja käytetään laajasti Zig-koodissa, ja näet molempia
+käytettävän, kun puhumme allokaattoreista @sec-allocators.
+Mutta toisena esimerkkinä rakennetaan yksinkertainen `User`-struct edustamaan jonkin järjestelmän käyttäjää.
+
+Jos katsot alla olevaa `User`-structia, näet `struct`-avainsanan.
+Huomaa structin datajäsenet: `id`, `name` ja `email`. Jokaisella datajäsenellä on
+tyyppi eksplisiittisesti annotoitu kaksoispistesyntaksilla (`:`), jonka kuvasimme aiemmin @sec-root-file.
+Huomaa myös, että jokainen structin rungossa datajäsentä kuvaava rivi päättyy pilkkuun (`,`).
+Joka kerta kun ilmoitat datajäsenen Zig-koodissasi, päätä rivi aina pilkkuun
+perinteisen puolipisteen (`;`) sijaan.
+
+Seuraavaksi olemme rekisteröineet `init()`-funktion
+`User`-structin metodiksi. Tämä `init()`-metodi on konstruktorimetodi, jota käytämme
+jokaisen uuden `User`-olion instansioimiseen. Siksi tämä `init()`-funktio palauttaa tuloksena uuden `User`-olion.
+
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+const std = @import("std");
+const User = struct {
+    id: u64,
+    name: []const u8,
+    email: []const u8,
+
+    fn init(id: u64,
+            name: []const u8,
+            email: []const u8) User {
+
+        return User {
+            .id = id,
+            .name = name,
+            .email = email
+        };
+    }
+
+    fn print_name(self: User, stdout: *std.Io.Writer) !void {
+        try stdout.print("{s}\n", .{self.name});
+        try stdout.flush();
+    }
+};
+
+pub fn main(init: std.process.Init) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    const u = User.init(1, "pedro", "email@gmail.com");
+    try u.print_name(stdout);
+}
+```
+
+
+
+### `pub`-avainsana {#sec-pub-keyword}
+
+`pub`-avainsanalla on tärkeä rooli struct-määrittelyissä ja OOP:ssa Zigissä.
+Pohjimmiltaan tämä avainsana on lyhenne sanasta "public", ja se tekee kohteen/komponentin saataville sen moduulin ulkopuolelle,
+jossa kohde/komponentti on määritelty. Toisin sanoen, jos en käytä `pub`-avainsanaa
+jossakin, tämä "jokin" on käytettävissä/kutsuttavissa vain moduulista,
+jossa se on määritelty.
+
+Tämän avainsanan vaikutuksen havainnollistamiseksi keskitymme jälleen edellisessä osiossa määrittelemäämme `User`-structiin.
+Esimerkissämme oletetaan, että tämä `User`-struct on määritelty Zig-moduulissa nimeltä `user.zig`. Jos en käytä `pub`-avainsanaa `User`-structissa, voin luoda
+`User`-olion ja kutsua sen metodeja (`print_name()` ja `init()`) vain moduulista, jossa `User`-struct
+on määritelty, eli tässä tapauksessa `user.zig`-moduulista.
+
+Siksi edellinen koodiesimerkki toimii hyvin. Koska määrittelemme ja käytämme `User`-structia
+samassa moduulissa. Ongelmia alkaa syntyä, kun yritämme tuoda ja kutsua/käyttää tätä structia
+toisesta moduulista. Jos esimerkiksi luon uuden moduulin nimeltä `register.zig`, tuon siihen `user.zig`-moduulin
+ja yritän annotoida minkä tahansa muuttujan tyypillä `User`, saan kääntäjältä virheen.
+
+```zig
+// register.zig
+const user = @import("user.zig");
+pub fn main() !void {
+    const u: user.User = undefined;
+    _ = u;
+}
+```
+
+```
+register.zig:3:18: error: 'User' is not marked 'pub'
+    const u: user.User = undefined;
+             ~~~~^~~~~
+user.zig:3:1: note: declared here
+const User = struct {
+^~~~~
+```
+
+Jos siis haluat käyttää jotakin moduulin ulkopuolella, jossa se on määritelty,
+sinun täytyy merkitä se `pub`-avainsanalla. Tämä "jokin" voi olla moduuli,
+struct, funktio, olio jne.
+
+Esimerkissämme, jos palaamme `user.zig`-moduuliin ja lisäämme `pub`-avainsanan
+`User`-structin määrittelyyn, voin kääntää `register.zig`-moduulin onnistuneesti.
+
+```zig
+// user.zig
+// Added the `pub` keyword to `User`
+pub const User = struct {
+// ...
+```
+
+```zig
+// register.zig
+// This works fine now!
+const user = @import("user.zig");
+pub fn main() !void {
+    const u: user.User = undefined;
+    _ = u;
+}
+```
+
+
+Mitä luulet tapahtuvan, jos yritän `register.zig`-moduulista kutsua
+`User`-structin metodeja? Esimerkiksi jos yritän kutsua `init()`-metodia? Vastaus on: saan samanlaisen virheilmoituksen,
+joka varoittaa, että `init()`-metodia ei ole merkitty `pub`-avainsanalla, kuten näet alla:
+
+```zig
+const user = @import("user.zig");
+pub fn main() !void {
+    const u: user.User = user.User.init(
+        1, "pedro", "email@gmail.com"
+    );
+    _ = u;
+}
+```
+
+```
+register.zig:3:35: error: 'init' is not marked 'pub'
+    const u: user.User = user.User.init(
+                         ~~~~~~~~~^~~~~
+user.zig:8:5: note: declared here
+    fn init(id: u64,
+    ^~~~~~~
+```
+
+Pelkästään siksi, että olemme käyttäneet `pub`-avainsanaa struct-määrittelyssä,
+tämä ei tee structin metodeista julkisia. Jos haluamme käyttää
+mitä tahansa structin metodia (kuten `init()`-metodia) moduulin ulkopuolella,
+jossa struct on määritelty, meidän täytyy merkitä tämä metodi myös `pub`-avainsanalla.
+
+Palaamalla `user.zig`-moduuliin ja merkitsemällä sekä `init()`- että `print_name()`-metodit
+`pub`-avainsanalla, teemme molemmista saatavilla ulkopuolelle, ja
+seurauksena edellinen koodiesimerkki toimii.
+
+
+```zig
+// user.zig
+// Added the `pub` keyword to `User.init`
+    pub fn init(
+// ...
+// Added the `pub` keyword to `User.print_name`
+    pub fn print_name(self: User) !void {
+// ...
+```
+
+```zig
+// register.zig
+// This works fine now!
+const user = @import("user.zig");
+pub fn main() !void {
+    const u: user.User = user.User.init(
+        1, "pedro", "email@gmail.com"
+    );
+    _ = u;
+}
+```
+
+
+### Anonyymit struct-literaalit {#sec-anonymous-struct-literals}
+
+Voit ilmoittaa struct-olion literaaliarvona. Kun teemme niin, määrittelemme yleensä
+struct-literaalin datatyypin kirjoittamalla tyypin heti ennen avaavaa aaltosuljetta.
+Voisin esimerkiksi kirjoittaa edellisessä osiossa määrittelemämme `User`-tyypin struct-literaaliarvon näin:
+
+```{zig}
+#| eval: false
+const eu = User {
+    .id = 1,
+    .name = "Pedro",
+    .email = "someemail@gmail.com"
+};
+_ = eu;
+```
+
+Zigissä voimme kuitenkin kirjoittaa myös anonyymin struct-literaalin. Voit kirjoittaa
+struct-literaalin ilmoittamatta eksplisiittisesti kyseisen structin tyyppiä.
+Anonyymi struct kirjoitetaan syntaksilla `.{}`. Käytännössä
+korvasimme struct-literaalin eksplisiittisen tyypin pisteellä (`.`).
+
+Kuten kuvasimme @sec-type-inference, kun laitat pisteen struct-literaalin eteen,
+`zig`-kääntäjä päättelee struct-literaalin tyypin automaattisesti.
+Pohjimmiltaan `zig`-kääntäjä etsii vihjeitä structin tyypistä.
+Vihje voi olla funktioargumentin tyyppiannotaatio,
+käyttämäsi funktion paluutyypin annotaatio tai olemassa olevan olion tyyppiannotaatio.
+Jos kääntäjä löytää tällaisen tyyppiannotaation, se käyttää tätä
+tyyppiä struct-literaalissasi.
+
+Anonyymejä structeja käytetään hyvin yleisesti funktioargumenttien syötteinä Zigissä.
+Yksi esimerkki, jonka olet jo nähnyt jatkuvasti, on `stdout`-olion `print()`-funktio.
+Tämä funktio ottaa kaksi argumenttia.
+Ensimmäinen argumentti on mallimerkkijono, jossa pitäisi
+olla merkkijonon muotoilumääreitä, jotka kertovat, miten toisessa argumentissa annetut arvot
+tulostetaan viestiin.
+
+Toinen argumentti on struct-literaali, joka listaa arvot,
+jotka tulostetaan ensimmäisessä argumentissa määriteltyyn malliviestiin.
+Haluat yleensä käyttää tässä anonyymiä struct-literaalia, jotta
+`zig`-kääntäjä määrittää tämän anonyymin structin tyypin puolestasi.
+
+```{zig}
+#| build_type: "run"
+#| auto_main: false
+const std = @import("std");
+pub fn main(init: std.process.Init) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    try stdout.print("Hello, {s}!\n", .{"world"});
+    try stdout.flush();
+}
+```
+
+
+
+### Struct-määrittelyjen täytyy olla vakioita
+
+Zigissä tyypit täytyy olla `const` tai `comptime` (puhumme comptime:sta lisää @sec-comptime).
+Tämä tarkoittaa, että et voi luoda uutta datatyyppiä ja merkitä sitä muuttujaksi `var`-avainsanalla.
+Struct-määrittelyt ovat siis aina vakioita. Et voi ilmoittaa uutta struct-tyyppiä `var`-avainsanalla.
+Sen täytyy olla `const`.
+
+Alla olevassa `Vec3`-esimerkissä tämä määrittely on sallittu, koska käytän `const`-avainsanaa
+tämän uuden datatyypin ilmoittamiseen.
+
+```{zig}
+#| build_type: "lib"
+#| auto_main: false
+const Vec3 = struct {
+    x: f64,
+    y: f64,
+    z: f64,
+};
+```
+
+
+### `self`-metodiargumentti {#sec-self-arg}
+
+Jokaisessa OOP:ta tukevassa kielessä, kun ilmoitamme jonkin luokan tai structin metodin, ilmoitamme
+yleensä metodin funktioksi, jolla on `self`-argumentti.
+`self`-argumentti on viittaus itse olioon, josta metodia
+kutsutaan.
+
+`self`-argumentin käyttö ei ole pakollista. Mutta miksi et käyttäisi `self`-argumenttia?
+Ei ole syytä olla käyttämättä sitä. Ainoa tapa päästä käsiksi structisi datajäsenissä
+tallennettuun dataan on käyttää niitä tämän `self`-argumentin kautta.
+Jos et tarvitse structisi datajäsenten dataa metodissasi, et todennäköisesti tarvitse
+metodia. Voit ilmoittaa tämän logiikan yksinkertaisena funktiona struct-määrittelyn
+ulkopuolella.
+
+
+Ota alla oleva `Vec3`-struct. Tämän `Vec3`-structin sisällä olemme määritelleet metodin nimeltä `distance()`.
+Tämä metodi laskee kahden `Vec3`-olion välisen etäisyyden euklidisen
+etäisyyskaavan mukaisesti. Huomaa, että `distance()`-metodi ottaa syötteenä kaksi `Vec3`-oliota,
+`self` ja `other`.
+
+
+```{zig}
+#| build_type: "lib"
+#| auto_main: false
+const std = @import("std");
+const m = std.math;
+const Vec3 = struct {
+    x: f64,
+    y: f64,
+    z: f64,
+
+    pub fn distance(self: Vec3, other: Vec3) f64 {
+        const xd = m.pow(f64, self.x - other.x, 2.0);
+        const yd = m.pow(f64, self.y - other.y, 2.0);
+        const zd = m.pow(f64, self.z - other.z, 2.0);
+        return m.sqrt(xd + yd + zd);
+    }
+};
+```
+
+
+`self`-argumentti vastaa `Vec3`-oliota, josta tätä `distance()`-metodia
+kutsutaan. `other` on erillinen `Vec3`-olio, joka annetaan syötteenä
+tälle metodille. Alla olevassa esimerkissä `self`-argumentti vastaa oliota
+`v1`, koska `distance()`-metodia kutsutaan oliosta `v1`,
+kun taas `other`-argumentti vastaa oliota `v2`.
+
+
+```{zig}
+#| eval: false
+#| auto_main: true
+#| build_type: "ast"
+const v1 = Vec3 {
+    .x = 4.2, .y = 2.4, .z = 0.9
+};
+const v2 = Vec3 {
+    .x = 5.1, .y = 5.6, .z = 1.6
+};
+
+std.debug.print(
+    "Distance: {d}\n",
+    .{v1.distance(v2)}
+);
+```
+
+```
+Distance: 3.3970575502926055
+```
+
+
+
+### Structin tilasta
+
+Joskus sinun ei tarvitse välittää struct-oliosi tilasta. Joskus sinun täytyy vain
+instansioida ja käyttää olioita muuttamatta niiden tilaa. Huomaat tämän, kun struct-määrittelyssäsi on metodeja,
+jotka saattavat käyttää datajäsenten arvoja, mutta eivät
+muuta structin datajäsenten arvoja millään tavalla.
+
+@sec-self-arg esitelty `Vec3`-struct on esimerkki tästä.
+Tällä structilla on yksi metodi nimeltä `distance()`, ja tämä metodi käyttää arvoja,
+jotka ovat kaikissa kolmessa structin datajäsenessä (`x`, `y` ja `z`). Mutta samaan aikaan
+tämä metodi ei muuta näiden datajäsenten arvoja missään vaiheessa.
+
+Seurauksena kun luomme `Vec3`-olioita, luomme ne yleensä
+vakioina, kuten @sec-self-arg esitetyt `v1`- ja `v2`-oliot.
+Voimme luoda ne muuttujina `var`-avainsanalla,
+jos haluamme. Mutta koska tämän `Vec3`-structin metodit eivät muuta
+olioiden tilaa missään vaiheessa, niiden merkitseminen muuttujiksi on tarpeetonta.
+
+Mutta miksi? Miksi puhun tästä tässä? Koska metodien `self`-argumenttiin
+vaikuttaa se, muuttavatko structin metodit
+olion tilaa vai eivät.
+Tarkemmin sanottuna, kun structissa on metodi, joka muuttaa olion tilaa
+(eli muuttaa datajäsenen arvoa), `self`-argumentti
+täytyy annotoida eri tavalla.
+
+Kuten kuvasin @sec-self-arg, structin metodien `self`-argumentti
+on argumentti, joka saa syötteenä olion, josta metodia
+kutsuttiin. Annotoimme yleensä tämän argumentin metodeissa kirjoittamalla `self`,
+jonka jälkeen kaksoispiste (`:`) ja structin datatyyppi, johon
+metodi kuuluu (esim. `User`, `Vec3` jne.).
+
+Jos otamme edellisessä osiossa määrittelemämme `Vec3`-structin esimerkiksi,
+näemme `distance()`-metodissa, että `self`-argumentti on annotoitu muodossa
+`self: Vec3`. Koska `Vec3`-olion tilaa ei koskaan muuteta tässä
+metodissa.
+
+Mutta entä jos meillä on metodi, joka muuttaa olion tilaa muuttamalla
+sen datajäsenten arvoja, miten `self` pitäisi annotoida? Vastaus on:
+"meidän pitäisi annotoida `self` osoittimeksi tyypistä `x`, pelkän `x`:n sijaan".
+Toisin sanoen sinun pitäisi annotoida `self` muodossa `self: *x` sen sijaan, että annotoisit sen
+muodossa `self: x`.
+
+Jos luomme `Vec3`-olioon uuden metodin, joka esimerkiksi laajentaa
+vektoria kertomalla sen koordinaatit kahdella, meidän täytyy noudattaa
+edellisessä kappaleessa määriteltyä sääntöä. Alla oleva koodiesimerkki havainnollistaa
+tätä ideaa:
+
+```{zig}
+#| build_type: "lib"
+#| auto_main: false
+const std = @import("std");
+const m = std.math;
+const Vec3 = struct {
+    x: f64,
+    y: f64,
+    z: f64,
+
+    pub fn distance(self: Vec3, other: Vec3) f64 {
+        const xd = m.pow(f64, self.x - other.x, 2.0);
+        const yd = m.pow(f64, self.y - other.y, 2.0);
+        const zd = m.pow(f64, self.z - other.z, 2.0);
+        return m.sqrt(xd + yd + zd);
+    }
+
+    pub fn twice(self: *Vec3) void {
+        self.x = self.x * 2.0;
+        self.y = self.y * 2.0;
+        self.z = self.z * 2.0;
+    }
+};
+```
+
+Huomaa yllä olevassa koodiesimerkissä, että olemme lisänneet `Vec3`-structiimme uuden metodin
+nimeltä `twice()`. Tämä metodi kaksinkertaistaa
+vektorioliomme koordinaattiarvot. `twice()`-metodissa
+annotoimme `self`-argumentin muodossa `*Vec3`,
+osoittaen, että argumentti saa syötteenä osoittimen (tai viitteen, jos haluat kutsua sitä näin)
+`Vec3`-olioon.
+
+```{zig}
+#| eval: false
+var v3 = Vec3 {
+    .x = 4.2, .y = 2.4, .z = 0.9
+};
+v3.twice();
+std.debug.print("Doubled: {d}\n", .{v3.x});
+```
+
+```
+Doubled: 8.4
+```
+
+
+
+Jos muutat `twice()`-metodin `self`-argumentin muotoon `self: Vec3`, kuten
+`distance()`-metodissa, saat alla olevan kääntäjävirheen. Huomaa, että tämä
+virheilmoitus viittaa riviin `twice()`-metodin rungossa,
+osoittaen, että et voi muuttaa `x`-datajäsenen arvoa.
+
+```{zig}
+#| eval: false
+// If we change the function signature of double to:
+    pub fn twice(self: Vec3) void {
+```
+
+```
+t.zig:16:13: error: cannot assign to constant
+        self.x = self.x * 2.0;
+        ~~~~^~
+```
+
+Tämä virheilmoitus osoittaa, että `x`-datajäsen kuuluu vakio-olioon,
+ja siksi sitä ei voi muuttaa. Lopulta virheilmoitus
+kertoo, että `self`-argumentti on vakio.
+
+Jos käytät aikaa ja mietit tätä virheilmoitusta, ymmärrät sen.
+Sinulla on jo työkalut ymmärtää, miksi saamme tämän virheilmoituksen.
+Olemme puhuneet siitä jo @sec-fun-pars.
+Muista siis, että jokainen funktioargumentti on Zigissä muuttumaton, eikä `self`
+ole poikkeus tähän sääntöön.
+
+Tässä esimerkissä merkitsimme `v3`-olion muuttujaksi.
+Mutta sillä ei ole väliä. Kyse ei ole syöteoliosta, vaan
+funktioargumentista.
+
+Ongelma alkaa, kun yritämme muuttaa `self`:n arvoa suoraan, koska se on funktioargumentti,
+ja jokainen funktioargumentti on oletuksena muuttumaton. Voit kysyä itseltäsi, miten voimme ylittää
+tämän esteen, ja jälleen ratkaisu käsiteltiin @sec-fun-pars.
+Ylitämme tämän esteen merkitsemällä `self`-argumentin eksplisiittisesti osoittimeksi.
+
+
+::: {.callout-note}
+Jos `x`-structisi metodi muuttaa olion tilaa
+muuttamalla jonkin datajäsenen arvoa, muista käyttää `self: *x`,
+`self: x`:n sijaan tämän metodin funktiosignatuurissa.
+:::
+
+
+Voit tulkita tässä osiossa käsitellyn sisällön myös näin:
+"jos sinun täytyy muuttaa `x`-struct-oliosi tilaa yhdessä sen metodeista,
+sinun täytyy välittää `x`-struct-olio eksplisiittisesti viitteenä metodin `self`-argumentille".
+
+
+
+## Tyyppipäättely {#sec-type-inference}
+
+Zig on vahvasti tyypitetty kieli. Joissain tilanteissa
+sinun ei kuitenkaan tarvitse kirjoittaa eksplisiittisesti jokaisen olion tyyppiä lähdekoodissasi,
+kuten perinteisessä vahvasti tyypitetyssä kielessä, kuten C tai C++.
+
+Joissain tilanteissa `zig`-kääntäjä voi käyttää tyyppipäättelyä ratkaistakseen datatyypit puolestasi, helpottaen
+kehittäjän taakkaa.
+Yleisin tapa, jolla tämä tapahtuu, on funktioargumentit, jotka saavat struct-olioita
+syötteenä.
+
+Yleisesti ottaen tyyppipäättely Zigissä tehdään pisteellä (`.`).
+Aina kun näet pisteen struct-literaalin tai enum-arvon edessä tai vastaavassa,
+tiedät, että pisteellä on erityinen rooli. Tarkemmin sanottuna se
+kertoo `zig`-kääntäjälle jotain tyyliin: "Hei! Voitko päätellä tämän arvon tyypin
+puolestani? Kiitos!". Toisin sanoen piste toimii samankaltaisessa roolissa kuin `auto`-avainsana C++:ssa.
+
+Annoin esimerkkejä tästä @sec-anonymous-struct-literals, jossa käytimme anonyymejä struct-literaaleja.
+Anonyymit struct-literaalit ovat struct-literaaleja, jotka käyttävät tyyppipäättelyä
+päätelläkseen tarkalleen kyseisen struct-literaalin tyypin.
+Tyyppipäättely tehdään etsimällä minimaalinen vihje oikeasta datatyypistä.
+Voit sanoa, että `zig`-kääntäjä etsii läheisiä tyyppiannotaatioita, jotka kertoisivat
+oikean tyypin.
+
+Toinen yleinen paikka, jossa käytämme tyyppipäättelyä Zigissä, on switch-lauseet (joista puhuimme @sec-switch).
+Annoin myös muita esimerkkejä tyyppipäättelystä @sec-switch, jossa päättelimme switch-lauseissa listattujen enum-arvojen datatyyppejä (esim. `.DE`).
+Mutta toisena esimerkkinä katso alla olevaa `fence()`-funktiota,
+joka tulee Zig Standard Libraryn [`atomic.zig`-moduulista](https://codeberg.org/ziglang/zig/src/branch/master/lib/std/atomic.zig)[^fence-fn].
+
+[^fence-fn]: <https://codeberg.org/ziglang/zig/src/branch/master/lib/std/atomic.zig>.
+
+Tässä funktiossa on paljon asioita, joista emme ole vielä puhuneet, kuten:
+mitä `comptime` tarkoittaa? `inline`? `extern`?
+Jätetään kaikki nämä huomiotta ja keskitytään pelkästään
+tässä funktiossa olevaan switch-lauseeseen.
+
+Näemme, että tämä switch-lause käyttää syötteenä `order`-oliota. `order`-olio
+on yksi tämän `fence()`-funktion syötteistä, ja tyyppiannotaatiosta näemme,
+että olion tyyppi on `AtomicOrder`. Näemme myös joukon arvoja switch-lauseissa,
+jotka alkavat pisteellä, kuten `.release` ja `.acquire`.
+
+Koska nämä arvot sisältävät pisteen edessään, pyydämme `zig`-kääntäjää
+päättelemään näiden arvojen tyypit switch-lauseen sisällä. Sitten `zig`-kääntäjä
+katsoo kontekstia, jossa näitä arvoja käytetään, ja yrittää
+päätellä niiden tyypit.
+
+Koska niitä käytetään switch-lauseessa, `zig`-kääntäjä katsoo switch-lauseelle annetun
+syöteolion tyyppiä, joka tässä tapauksessa on `order`-olio.
+Koska tällä oliolla on tyyppi `AtomicOrder`, `zig`-kääntäjä päättelee, että nämä arvot
+ovat tämän tyypin `AtomicOrder` datajäseniä.
+
+```{zig}
+#| eval: false
+pub inline fn fence(self: *Self, comptime order: AtomicOrder) void {
+    // many lines of code ...
+    if (builtin.sanitize_thread) {
+        const tsan = struct {
+            extern "c" fn __tsan_acquire(addr: *anyopaque) void;
+            extern "c" fn __tsan_release(addr: *anyopaque) void;
+        };
+
+        const addr: *anyopaque = self;
+        return switch (order) {
+            .unordered, .monotonic => @compileError(
+                @tagName(order)
+                ++ " only applies to atomic loads and stores"
+            ),
+            .acquire => tsan.__tsan_acquire(addr),
+            .release => tsan.__tsan_release(addr),
+            .acq_rel, .seq_cst => {
+                tsan.__tsan_acquire(addr);
+                tsan.__tsan_release(addr);
+            },
+        };
+    }
+
+    return @fence(order);
+}
+```
+
+Näin tyyppipäättely tehdään Zigissä perustasolla. Jos emme käyttäisi pistettä
+switch-lauseen sisällä olevien arvojen edessä, meidän pitäisi kirjoittaa eksplisiittisesti
+näiden arvojen datatyypit. Esimerkiksi `.release`-kirjoituksen sijaan meidän pitäisi
+kirjoittaa `AtomicOrder.release`. Meidän pitäisi tehdä tämä jokaiselle arvolle
+tässä switch-lauseessa, ja se olisi paljon työtä. Siksi tyyppipäättelyä
+käytetään yleisesti switch-lauseissa Zigissä.
+
+
+
+## Tyyppimuunnos {#sec-type-cast}
+
+Tässä osiossa haluan käsitellä tyyppimuunnosta (tai type casting) kanssasi.
+Käytämme tyyppimuunnosta, kun meillä on olio tyypistä "x" ja haluamme muuntaa
+sen olioksi tyypistä "y", eli haluamme muuttaa olion datatyypin.
+
+Useimmilla kielillä on muodollinen tapa suorittaa tyyppimuunnos. Rustissa käytämme esimerkiksi
+avainsanaa `as`, ja C:ssä käytämme tyyppimuunnossyntaksia, esim. `(int) x`.
+Zigissä käytämme `@as()`-sisäänrakennettua funktiota muuntaaksemme olion tyypistä "x"
+olioksi tyypistä "y".
+
+`@as()`-funktio on suositeltu tapa suorittaa tyyppimuunnos (tai type casting)
+Zigissä. Koska se on eksplisiittinen ja suorittaa muunnoksen vain, jos se
+on yksiselitteinen ja turvallinen. Käyttääksesi tätä funktiota annat kohdedatyypin
+ensimmäisenä argumenttina ja muunnettavan olion toisena argumenttina.
+
+```{zig}
+#| auto_main: false
+#| build_type: "test"
+const std = @import("std");
+const expect = std.testing.expect;
+test {
+    const x: usize = 500;
+    const y = @as(u32, x);
+    try expect(@TypeOf(y) == u32);
+}
+```
+
+Tämä on yleinen tapa suorittaa tyyppimuunnos Zigissä. Muista kuitenkin, että `@as()` toimii vain, kun muunnos
+on yksiselitteinen ja turvallinen. On monia tilanteita, joissa nämä oletukset eivät päde. Esimerkiksi
+
+kun muunnetaan kokonaisluku liukuluvuksi tai päinvastoin, kääntäjälle ei ole selvää,
+miten tämä muunnos tehdään turvallisesti.
+
+Siksi meidän täytyy käyttää erikoistuneita "muunnosfunktioita" tällaisissa tilanteissa.
+Jos esimerkiksi haluat muuntaa kokonaisluvun liukuluvuksi, sinun pitäisi
+käyttää `@floatFromInt()`-funktiota. Päinvastaisessa tilanteessa käytä
+`@intFromFloat()`-funktiota.
+
+Näissä funktioissa annat vain muunnettavan olion
+syötteenä. Sitten tyyppimuunnosoperaation kohdedatatyypin määrittää
+sen olion tyyppiannotaatio, johon tallennat tulokset.
+Alla olevassa esimerkissä muunnamme olion `x` arvoksi tyypistä `f32`,
+koska olio `y`, johon tallennamme tulokset, on annotoitu
+tyypiksi `f32`.
+
+```{zig}
+#| auto_main: false
+#| build_type: "test"
+const std = @import("std");
+const expect = std.testing.expect;
+test {
+    const x: usize = 565;
+    const y: f32 = @floatFromInt(x);
+    try expect(@TypeOf(y) == f32);
+}
+```
+
+Toinen sisäänrakennettu funktio, joka on hyvin hyödyllinen tyyppimuunnosoperaatioissa, on `@ptrCast()`.
+Pohjimmiltaan käytämme `@as()`-sisäänrakennettua funktiota, kun haluamme eksplisiittisesti muuntaa (tai castata) Zig-arvon/olion
+tyypistä "x" tyyppiin "y" jne. Osoittimet (käsittelemme osoittimia
+tarkemmin @sec-pointer) ovat kuitenkin Zigissä erityinen olion tyyppi,
+eli niitä käsitellään eri tavalla kuin "normaaleja olioita".
+
+Aina kun osoitin on mukana jossakin "tyyppimuunnosoperaatiossa" Zigissä, käytetään `@ptrCast()`-funktiota.
+Tämä funktio toimii samankaltaisesti kuin `@floatFromInt()`.
+Annat vain muunnettavan osoitinolion syötteenä tälle funktiolle, ja
+kohdedatatyypin määrittää jälleen sen olion tyyppiannotaatio, johon tulokset tallennetaan.
+
+```{zig}
+#| auto_main: false
+#| build_type: "test"
+const std = @import("std");
+const expect = std.testing.expect;
+test {
+    const bytes align(@alignOf(u32)) = [_]u8{
+        0x12, 0x12, 0x12, 0x12
+    };
+    const u32_ptr: *const u32 = @ptrCast(&bytes);
+    try expect(@TypeOf(u32_ptr) == *const u32);
+}
+```
+
+
+
+
+
+## Moduulit
+
+Olemme jo puhuneet siitä, mitä moduulit ovat, ja myös siitä, miten tuoda muita moduuleja
+nykyiseen moduuliin *import-lauseilla*. Jokainen Zig-moduuli (eli `.zig`-tiedosto), jonka kirjoitat projektissasi,
+tallennetaan sisäisesti struct-oliona. Katso alla oleva rivi esimerkkinä. Tällä rivillä tuomme
+Zig Standard Libraryn nykyiseen moduuliimme.
+
+```{zig}
+#| eval: false
+const std = @import("std");
+```
+
+Kun haluamme käyttää standardikirjaston funktioita ja olioita, käytämme
+käytännössä `std`-oliossa tallennetun structin datajäseniä. Siksi käytämme samaa syntaksia kuin tavallisissa structeissa, pisteoperaattoria (`.`)
+structin datajäsenten ja metodien käyttöön.
+
+Kun tämä "import-lause" suoritetaan, lausekkeen tulos on struct-olio,
+joka sisältää Zig Standard Libraryn moduulit, globaalit muuttujat, funktiot jne.
+Ja tämä struct-olio tallennetaan vakio-olioon nimeltä `std`.
+
+
+Ota esimerkiksi [`thread_pool.zig`-moduuli projektista `zap`](https://github.com/kprotty/zap/blob/blog/src/thread_pool.zig)[^thread].
+Tämä moduuli on kirjoitettu kuin se olisi
+yksi suuri struct. Siksi moduulissa on ylätason ja julkinen `init()`-metodi.
+Ajatuksena on, että kaikki moduuliin kirjoitetut ylätason funktiot
+ovat structin metodeja, ja kaikki ylätason oliot ja struct-määrittelyt
+ovat structin datajäseniä. Moduuli on itse struct.
+
+[^thread]: <https://github.com/kprotty/zap/blob/blog/src/thread_pool.zig>
+
+
+Tällaisen moduulin tuot ja käytät jotain tällaista:
+
+```{zig}
+#| eval: false
+const std = @import("std");
+const ThreadPool = @import("thread_pool.zig");
+const num_cpus = std.Thread.getCpuCount()
+    catch @panic("failed to get cpu core count");
+const num_threads = std.math.cast(u16, num_cpus)
+    catch std.math.maxInt(u16);
+const pool = ThreadPool.init(
+    .{ .max_threads = num_threads }
+);
+```

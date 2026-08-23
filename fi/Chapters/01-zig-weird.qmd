@@ -1,0 +1,1682 @@
+---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+translation:
+  source: Chapters/01-zig-weird.qmd
+  source_sha256: dd94f951ea5f2107d619ce52993662ab242aa957082fedd81f3038b89758052c
+  status: complete
+---
+
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+
+
+
+# Zigin esittely
+
+Tässä luvussa haluan esitellä sinut Zigin maailmaan.
+Zig on hyvin nuori kieli, jota kehitetään aktiivisesti.
+Sen seurauksena sen maailma on vielä villi ja tutkimaton.
+Tämä kirja on yritykseni auttaa sinua henkilökohtaisella matkallasi
+Zigin jännittävän maailman ymmärtämisessä ja tutkimisessa.
+
+Oletan, että sinulla on aiempaa kokemusta jostakin ohjelmointikielestä
+tätä kirjaa varten — ei välttämättä matalan tason kielestä.
+Jos sinulla on esimerkiksi kokemusta Pythonista tai Javascriptista, se riittää hyvin.
+Mutta jos sinulla on kokemusta matalan tason kielistä, kuten C:stä, C++:sta tai
+Rustista, opit todennäköisesti nopeammin koko kirjan ajan.
+
+## Mitä on Zig?
+
+Zig on moderni, matalan tason yleiskäyttöinen ohjelmointikieli. Jotkut ohjelmoijat pitävät
+Zigiä modernina ja parempana versiona C:stä.
+
+Kirjoittajan henkilökohtaisen tulkinnan mukaan Zig liittyy tiiviisti ajatukseen "vähemmän on enemmän".
+Sen sijaan, että yritettäisiin tulla moderniksi kieleksi lisäämällä yhä enemmän ominaisuuksia,
+monet Zigin tuomat keskeiset parannukset
+liittyvät itse asiassa C:n ja C++:n ärsyttävien käyttäytymismallien ja ominaisuuksien poistamiseen.
+Toisin sanoen Zig yrittää olla parempi yksinkertaistamalla kieltä ja käyttäytymällä johdonmukaisemmin ja vankemmin.
+Tämän seurauksena sovellusten analysoinnista, kirjoittamisesta ja debuggaamisesta tulee paljon helpompaa ja yksinkertaisempaa Zigissä kuin C:ssä tai C++:ssa.
+
+Tämä filosofia tulee selväksi seuraavalla lauseella Zigin viralliselta verkkosivustolta:
+
+> "Keskity sovelluksesi debuggaamiseen ohjelmointikielitaitosi debuggaamisen sijaan".
+
+Tämä lause pätee erityisesti C++-ohjelmoijille. Koska C++ on jättimäinen kieli,
+jossa on valtavasti ominaisuuksia ja lisäksi monia erilaisia "C++-makuja". Nämä tekijät
+tekevät C++:sta niin monimutkaisen ja vaikeasti opittavan. Zig yrittää mennä vastakkaiseen suuntaan.
+Zig on hyvin yksinkertainen kieli, joka liittyy läheisemmin muihin yksinkertaisiin kieliin, kuten C ja Go.
+
+Yllä oleva lausunto on tärkeä myös C-ohjelmoijille. Vaikka C on yksinkertainen
+kieli, C-koodin lukeminen ja ymmärtäminen on silti joskus vaikeaa. Esimerkiksi esikääntäjän makrot
+C:ssä ovat usein hämmennyksen lähde. Joskus ne todella vaikeuttavat debuggausta
+C-ohjelmissa. Koska makrot ovat pohjimmiltaan toinen C:hen upotettu kieli, joka peittää
+C-koodisi. Makroja käytettäessä et ole enää 100 % varma siitä, mitkä kappaleet
+koodista lähetetään kääntäjälle, ts.
+ne peittävät kirjoittamasi todellisen lähdekoodin.
+
+Zigissä ei ole makroja. Zigissä kirjoittamasi koodi on se koodi, jonka kääntäjä kääntää.
+Et myöskään saa piilotettua ohjausvirtaa tapahtumaan kulissien takana. Eikä sinulla ole
+standardikirjaston funktioita tai operaattoreita, jotka tekevät
+piilossa muistinvarauksia selkäsi takana.
+
+Koska Zig on yksinkertaisempi kieli, siitä tulee paljon selkeämpi ja helpompi lukea/kirjoittaa,
+mutta samalla se saavuttaa myös paljon kestävämmän tilan ja johdonmukaisemman
+käyttäytymisellä reunatilanteissa. Taaskin: vähemmän on enemmän.
+
+
+## Hello world Zigissä
+
+Aloitamme Zig-matkan luomalla pienen "Hello World" -ohjelman.
+Uuden Zig-projektin aloittaminen tietokoneellasi on yksinkertaista: kutsu `init`-komentoa
+`zig`-kääntäjästä.
+Luo vain uusi hakemisto tietokoneellesi ja aloita sitten uusi Zig-projekti
+tämän hakemiston sisällä näin:
+
+```bash
+mkdir hello_world
+cd hello_world
+zig init
+```
+
+```
+info: created build.zig
+info: created build.zig.zon
+info: created src/main.zig
+info: created src/root.zig
+info: see `zig build --help` for a menu of options
+```
+
+### Projektitiedostojen ymmärtäminen {#sec-project-files}
+
+Kun olet suorittanut `init`-komennon `zig`-kääntäjästä, joitain uusia tiedostoja
+luodaan nykyiseen hakemistoosi. Ensin luodaan "source"- (`src`) hakemisto
+luodaan ja sisältää kaksi tiedostoa, `main.zig` ja `root.zig`. Jokainen `.zig`-tiedosto
+on erillinen Zig-moduuli, joka on yksinkertaisesti tekstitiedosto, joka sisältää jonkin verran Zig-koodia.
+
+Käytännön mukaan `main.zig`-moduuli on päätoimintosi paikka. Näin ollen
+jos rakennat suoritettavaa ohjelmaa Zigissä, sinun on ilmoitettava `main()`-funktio,
+joka edustaa ohjelmasi aloituspistettä, eli mistä ohjelman suoritus alkaa.
+
+Jos kuitenkin rakennat kirjastoa (suoritettavan ohjelman sijaan),
+normaali menettely on poistaa tämä `main.zig`-tiedosto ja aloittaa `root.zig`-moduulista.
+Käytännön mukaan `root.zig`-moduuli on kirjastosi juurilähdetiedosto.
+
+```bash
+tree .
+```
+
+```
+.
+├── build.zig
+├── build.zig.zon
+└── src
+    ├── main.zig
+    └── root.zig
+
+1 directory, 4 files
+```
+
+`init`-komento luo myös kaksi lisätiedostoa työhakemistoomme:
+`build.zig` ja `build.zig.zon`. Ensimmäinen tiedosto (`build.zig`) edustaa Zig-kielellä kirjoitettua rakennuskomentosarjaa.
+Tämä komentosarja suoritetaan, kun kutsut `build`-komentoa `zig`-kääntäjästä.
+Toisin sanoen tämä tiedosto sisältää Zig-koodin, joka suorittaa tarvittavat vaiheet koko projektin rakentamiseksi.
+
+
+Matalan tason kielet käyttävät yleensä kääntäjää
+lähdekoodia binäärisiksi suoritettaviksi tiedostoiksi tai binäärikirjastoiksi.
+Tästä huolimatta tämä lähdekoodin kokoaminen ja rakentaminen
+binaariset suoritettavat tiedostot tai binaarikirjastot siitä tuli todellinen haaste
+ohjelmointimaailmassa, kun projekteista tuli yhä suurempia.
+Tämän seurauksena ohjelmoijat loivat "build-järjestelmäs", joka on toinen työkalusarja, joka on suunniteltu tämän prosessin tekemiseen.
+monimutkaisten projektien kokoaminen ja rakentaminen on helpompaa.
+
+Esimerkkejä rakennusjärjestelmistä ovat GNU Make, GNU Autoconf ja Ninja[^cmake1],
+joita käytetään monimutkaisten C- ja C++-projektien rakentamiseen.
+Näillä järjestelmillä voit kirjoittaa skriptejä, joita kutsutaan nimellä "build-skriptis".
+Ne ovat yksinkertaisesti skriptejä, jotka kuvaavat tarvittavat käännös-/rakennusvaiheet
+sinun projektisi.
+
+[^cmake1]: C++-ohjelmoijat haluavat myös käyttää CMakea projektiensa rakentamiseen, mutta CMake ei ole varsinainen rakennusjärjestelmä (ja se on ainoa syy, miksi sitä ei mainita tässä luettelossa). Teknisesti CMake on koontijärjestelmän generaattori. Se luo koontiskriptejä muille rakennusjärjestelmille, kuten Ninjalle tai Makelle.
+
+Nämä ovat kuitenkin erillisiä työkaluja, jotka eivät
+kuuluvat C/C++-kääntäjiin, kuten `gcc` tai `clang`.
+Tämän seurauksena C/C++-projekteissa sinun ei tarvitse vain asentaa ja
+hallita C/C++-kääntäjiäsi, mutta sinun on myös asennettava ja hallittava
+nämä rakentavat järjestelmät erikseen.
+
+Zigissä meidän ei tarvitse käyttää erillisiä työkaluja projektiemme rakentamiseen,
+koska rakennusjärjestelmä on upotettu itse kielen sisään.
+Voimme käyttää tätä rakennusjärjestelmää pienten skriptien kirjoittamiseen Zigissä,
+jotka kuvaavat tarvittavat vaiheet Zig-projektimme [^zig-build-system] rakentamiseen/kääntämiseen.
+Joten kaikki mitä tarvitset monimutkaisen Zig-projektin rakentamiseen, on
+`zig`-kääntäjä, eikä mitään muuta.
+
+[^zig-build-system]: <https://ziglang.org/learn/overview/#zig-build-system>.
+
+
+Toinen luotu tiedosto (`build.zig.zon`) on JSON-tyyppinen tiedosto, jossa voit kuvata
+projektisi ja myös ilmoittaa joukko projektisi riippuvuuksia, jotka haluat hakea Internetistä.
+Toisin sanoen voit käyttää tätä `build.zig.zon`-tiedostoa sisällyttääksesi luettelon ulkoisista kirjastoista projektiisi.
+
+Yksi mahdollinen tapa sisällyttää ulkoinen Zig-kirjasto projektiisi on manuaalinen rakentaminen
+ja asenna kirjasto järjestelmääsi ja linkitä vain lähdekoodisi
+kirjaston kanssa projektisi rakennusvaiheessa.
+
+Jos tämä ulkoinen Zig-kirjasto on saatavilla esimerkiksi GitHubissa,
+ja sillä on kelvollinen `build.zig.zon`-tiedosto projektin juurikansiossa,
+joka kuvaa projektia, voit helposti sisällyttää tämän kirjaston
+projektiisi yksinkertaisesti luettelemalla tämä ulkoinen kirjasto `build.zig.zon`-tiedostossasi.
+
+Toisin sanoen tämä `build.zig.zon`-tiedosto toimii samalla tavalla kuin `package.json`
+tiedosto Javascript-projekteissa tai `Pipfile`-tiedosto Python-projekteissa,
+tai `Cargo.toml`-tiedosto Rust-projekteissa. Voit lukea tästä lisää
+tietty tiedosto parissa artikkelissa internetissä[^zig-zon][^zig-zon2] ja
+näet myös odotetun skeeman tälle `build.zig.zon`-tiedostolle
+dokumentaatiotiedostossa Zig[^zig-zon-schema]:n virallisessa arkistossa.
+
+[^zig-zon]: <https://zig.news/edyu/zig-package-manager-wtf-is-zon-558e>
+[^zig-zon2]: <https://medium.com/@edlyuu/zig-package-manager-2-wtf-is-build-zig-zon-and-build-zig-0-11-0-update-5bc46e830fc1>
+[^zig-zon-schema]: <https://codeberg.org/ziglang/zig/src/branch/master/doc/build.zig.zon.md>
+
+### Tiedosto `root.zig` {#sec-root-file}
+
+Katsotaanpa `root.zig`-tiedostoa.
+Olet ehkä huomannut, että jokainen lausekkeen sisältävä koodirivi päättyy puolipisteeseen (`;`).
+Tämä noudattaa C-perheen ohjelmointikielen [^c-family] syntaksia.
+
+[^c-family]: <https://en.wikipedia.org/wiki/List_of_C-family_programming_languages>
+
+Huomaa myös `@import()`-kutsu ensimmäisillä riveillä. Käytämme tätä sisäänrakennettua toimintoa
+tuodaksesi toimintoja muista Zig-moduuleista nykyiseen moduuliimme.
+Siksi tämä `@import()`-toiminto toimii samalla tavalla kuin esiprosessori `#include`
+C- tai C++-muodossa tai Python- tai Javascript-koodin `import`-käskyyn.
+Tässä esimerkissä tuomme `std`-moduulin,
+joka antaa sinulle pääsyn Zig Standard Libraryyn.
+
+Tässä `root.zig`-tiedostossa voimme myös nähdä, kuinka tehtävät (eli uusien objektien luominen)
+valmistetaan Zigissä. Voit luoda uuden objektin Zigissä käyttämällä syntaksia
+`(const|var) name = value;`. Alla olevassa esimerkissä yksi vakioobjekteista
+luotu on `std`. kohdassa @sec-assignments puhumme enemmän objekteista yleensä.
+
+
+```{zig}
+#| auto_main: false
+#| build_type: "ast"
+//! By convention, root.zig is the root source file when making a package.
+const std = @import("std");
+const Io = std.Io;
+
+/// This is a documentation comment to explain the `printAnotherMessage` function below.
+///
+/// Accepting an `Io.Writer` instance is a handy way to write reusable code.
+pub fn printAnotherMessage(writer: *Io.Writer) Io.Writer.Error!void {
+    try writer.print("Run `zig build test` to run the tests.\n", .{});
+}
+
+pub fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+test "basic add functionality" {
+    try std.testing.expect(add(3, 7) == 10);
+}
+```
+
+Voit myös huomata `root.zig`:ssä kuinka kommentit tehdään kielellä. Zigissä on kolmenlaisia ​​kommentteja, jotka voit kirjoittaa koodiisi:
+
+- normaalit kommentit, jotka ovat rivejä, jotka alkavat `//` ja jotka kääntäjä jättää kokonaan huomiotta.
+- doc-kommentit, jotka ovat rivejä, jotka alkavat `///`, ja ne dokumentoivat muuttujan/tyypin/mitä tahansa, joka seuraa välittömästi kommenttia. Kääntäjä itse asiassa käyttää näitä kommentteja luodakseen dokumentaatiota koodillesi.
+- ylätason doc-kommentit, jotka ovat rivejä, jotka alkavat `//!`:llä ja ovat aina Zig-moduulin yläosassa (ensimmäisillä riveillä) ja joita kääntäjä käyttää dokumentaation luomiseen koko moduulista.
+
+
+Myös Zigin funktiot on ilmoitettu käyttämällä avainsanaa `fn`.
+Tässä `root.zig`-moduulissa ilmoitamme funktion nimeltä `add()`, jolla on kaksi argumenttia nimeltä `a` ja `b`.
+Funktio palauttaa tuloksena kokonaisluvun, jonka tyyppi on `i32`.
+
+
+Zig on vahvasti tyypitetty kieli. On tiettyjä tilanteita, joissa voit (jos haluat) jättää väliin
+koodissasi olevan objektin tyyppi, jos tämä tyyppi voidaan päätellä `zig`-kääntäjällä (puhumme lisää
+siitä @sec-type-inference). Mutta on muita tilanteita, joissa sinun on oltava selkeä.
+Sinun on esimerkiksi määritettävä erikseen kunkin funktion argumentin tyyppi ja myös
+jokaisen Zigissä luomasi funktion palautustyyppi.
+
+Määritämme objektin tai funktion argumentin tyypin Zigissä by
+käyttämällä kaksoispistettä (`:`), jota seuraa tyyppi tämän objektin/funktion argumentin nimen jälkeen.
+Lausekkeiden `a: i32` ja `b: i32` avulla tiedämme, että sekä `a` että `b` argumenttien tyyppi on `i32`,
+joka on etumerkillinen 32-bittinen kokonaisluku. Tässä osassa
+Zigin syntaksi on identtinen Rustin syntaksin kanssa, joka myös määrittää tyypit
+käyttämällä kaksoispistemerkkiä.
+
+Lopuksi meillä on funktion palautustyyppi rivin lopussa, ennen kuin avaamme
+aaltosulkeet aloittaaksesi funktion rungon kirjoittamisen. Yllä olevassa esimerkissä tämä tyyppi on myös
+etumerkillinen 32-bittinen kokonaisluku (`i32`) arvo.
+
+Huomaa, että meillä on myös `pub`-avainsana ennen funktion määritystä. Tämä avainsana
+muuttaa `add()`-funktion "julkiseksi funktioksi tässä moduulissa". Jokainen Zigin toiminto
+moduuli on oletuksena yksityinen tälle Zig-moduulille ja sitä voidaan kutsua vain tästä moduulista.
+Ellet merkitse tätä toimintoa julkiseksi funktioksi avainsanalla `pub`.
+
+Jos ajattelet sitä, tämä `pub`-avainsana Zigissä toimii olennaisesti päinvastoin kuin avainsana `static`
+tee C/C++:ssa. Tekemällä funktion "public" sallit muiden Zig-moduuleiden käyttää tätä toimintoa ja kutsua sitä.
+Kutsuva Zig-moduuli tuo toisen moduulin käyttämällä sisäänrakennettua `@import()`-toimintoa, mikä tekee
+kaikki julkiset toiminnot tuodusta moduulista näkyvät kutsuvalle Zig-moduulille.
+Puhumme lisää tästä avainsanasta kohdassa @sec-pub-keyword.
+
+Voit myös nähdä `test`-lohkon `root.zig`:n sisällä. Tämä on suoritettavien yksikkötestien lohko.
+Saat lisätietoja näistä lohkoista kohdassa @sec-unittests.
+
+
+### `main.zig`-tiedosto {#sec-main-file}
+
+Nyt kun olemme oppineet paljon Zigin syntaksista `root.zig`-tiedostosta,
+Katsotaanpa `main.zig`-tiedostoa.
+Monet elementit, jotka näimme `root.zig`:ssä, ovat läsnä myös `main.zig`:ssä.
+Mutta on joitain muita elementtejä, joita emme ole vielä nähneet, joten sukeltakaamme sisään.
+
+Katso ensin tämän tiedoston `main()`-funktion palautustyyppiä.
+Voimme nähdä pienen muutoksen. Toiminnon palautustyyppiin (`void`) liittyy huutomerkki (`!`).
+Tämä huutomerkki kertoo, että tämä `main()`-funktio saattaa palauttaa virheen.
+
+On syytä huomata, että Zigin `main()`-funktio ei saa palauttaa mitään (`void`),
+tai etumerkitön 8-bittinen kokonaisluku (`u8`) arvo[^u8-example] tai virhe. Toisin sanoen voit kirjoittaa `main()`-funktion Zigissä
+palauttaaksesi käytännössä mitään (`void`), tai jos haluat, voit myös kirjoittaa C-tyyppisen `main()`-funktion,
+joka palauttaa kokonaisluvun arvon, joka yleensä toimii prosessin "status code":nä.
+
+[^u8-example]: Voit nähdä esimerkin `main()`-funktiosta, joka palauttaa `u8`-arvon `return-integer.zig`-tiedostossa <https://github.com/pedropark99/zig-book/blob/main/ZigExamples/zig-basics/return-integer.zig>
+
+Tässä esimerkissä `main()`:n palautustyypin huomautus osoittaa, että tämä funktio voi joko
+palauta mitään (`void`) tai palauta virhe. Tämä huutomerkki palautustyypin huomautuksessa
+on Zig:n mielenkiintoinen ja tehokas ominaisuus. Yhteenvetona, jos kirjoitat funktion ja jotain sisälle
+tämän funktion runko saattaa palauttaa virheen, jolloin sinun on pakko:
+
+- joko lisää huutomerkki funktion palautustyyppiin ja tee selväksi, että tämä funktio saattaa palauttaa virheen.
+- käsittele tämä virhe nimenomaisesti funktion rungossa.
+
+Useimmissa ohjelmointikielissä normaalisti käsittelemme (tai käsittelemme) virheen
+*try catch*-kuvio. Zigillä on sekä `try` että `catch` avainsanat. Mutta ne toimivat
+hieman eri tavalla kuin mihin olet todennäköisesti tottunut muilla kielillä.
+
+Jos tarkastelemme alla olevaa `main()`-funktiota, voit nähdä, että meillä on `try`-avainsana
+5. rivillä. Mutta meillä ei ole tässä koodissa avainsanaa `catch`.
+Zigissä käytämme avainsanaa `try` lausekkeen suorittamiseen, joka saattaa palauttaa virheen,
+joka tässä esimerkissä on `stdout.print()`-lauseke.
+
+Pohjimmiltaan avainsana `try` suorittaa lausekkeen `stdout.print()`. Jos tämä ilmaus
+palauttaa kelvollisen arvon, niin `try`-avainsana ei tee mitään. Se välittää arvon vain eteenpäin.
+On kuin tätä `try` avainsanaa ei olisi koskaan olemassa. Jos lauseke kuitenkin palauttaa virheen,
+avainsana `try` purkaa virhearvon ja palauttaa tämän virheen funktiosta
+ja tulostaa myös nykyisen pinon jäljen `stderr`.
+
+Tämä saattaa kuulostaa oudolta, jos puhut korkeatasoista kieltä. Koska sisään
+korkean tason kielet, kuten Python, jos jossain tapahtuu virhe, tämä virhe tulee automaattisesti
+palautetaan ja ohjelman suorittaminen pysähtyy automaattisesti, vaikka et haluaisi
+teloituksen lopettamiseksi. Olet velvollinen kohtaamaan virheen.
+
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+#| results: "hide"
+const std = @import("std");
+const Writer = std.Io.File.Writer;
+
+pub fn main(init: std.process.Init) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = Writer.init(
+        std.Io.File.stdout(),
+        init.io,
+        &stdout_buffer
+    );
+    const stdout = &stdout_writer.interface;
+    try stdout.print("Hello, {s}!\n", .{"world"});
+    try stdout.flush();
+}
+```
+
+Toinen asia, jonka olet ehkä huomannut tässä koodiesimerkissä, on se
+funktio `main()` on merkitty avainsanalla `pub`. Tätä tarvitaan jokaiselle `main()`:lle
+toiminto, jonka luot Zig-projekteissasi. Joten sinun tulee aina merkitä tämä funktio nimellä
+"public function". Ilman sitä käyttöjärjestelmä ei voi kutsua tätä toimintoa,
+ja siksi käynnistää ohjelmasi.
+
+
+
+### Koko projektin kääntäminen {#sec-compile-project}
+
+Nyt kun olemme nähneet tiedostoprojektit ja ymmärtäneet niistä enemmän, keskustellaan
+kuinka voit todella kääntää Zig-koodisi todellisiksi suoritettaviksi tai kirjastotiedostoiksi.
+Aloitetaan siitä, kuinka voit koota koko projektin kerralla.
+
+Aivan kuten kuvailin kohdassa @sec-project-files, kun projektimme kasvaa kooltaan ja
+monimutkaisuuden vuoksi järjestämme yleensä mieluummin kokoamis- ja rakennusprosessin
+projektin koontiskriptiksi käyttämällä jonkinlaista "build-järjestelmä".
+
+Toisin sanoen, kun projektimme kasvaa kooltaan ja monimutkaisuudeltaan, emme yleensä tee sitä
+kirjoittaa suoraan koontikomennot, kuten `build-exe`, `build-lib` ja `build-obj` komennot terminaaliin.
+Koska niiden kirjoittaminen alkaa olla vaikeampaa ja vaikeampaa projektin kasvaessa.
+
+C/C++-projekteissa ohjelmoijat päättävät yleensä käyttää CMake-, Ninja-, `Makefile`- tai `configure`-skriptejä.
+tämän prosessin järjestämiseksi. Kuitenkin Zigissä meillä on natiivi rakennusjärjestelmä itse kielessä.
+Joten voimme kirjoittaa rakennusskriptejä Zigissä Zig-projektien kokoamiseksi ja rakentamiseksi. Sitten me kaikki
+sinun täytyy tehdä, on kutsua `zig build`-komento rakentaaksesi projektimme.
+
+Joten kun suoritat komennon `zig build`, `zig`-kääntäjä etsii
+Zig-moduulille nimeltä `build.zig` nykyisessä hakemistossasi, joka
+tulee olla rakennuskomentosarjasi, joka sisältää tarvittavan koodin kääntämiseen ja
+rakentaa projektisi. Jos kääntäjä löytää tämän `build.zig`-tiedoston hakemistostasi,
+sitten kääntäjä käytännössä suorittaa komennon `zig run`
+tämän `build.zig`-tiedoston yli, kääntääksesi ja suorittaaksesi tämän koontiversion
+käsikirjoitus, joka puolestaan kokoaa ja rakentaa koko projektisi.
+
+
+```bash
+zig build
+```
+
+
+Kun olet suorittanut tämän "build project"-komennon, `zig-out`-hakemisto
+on luotu projektihakemistosi juureen, josta löydät
+Zig-moduuleistasi luodut binaariset suoritettavat tiedostot ja kirjastot
+koontikomentojen mukaisesti, jotka määritit kohdassa `build.zig`.
+Puhumme lisää Zigin rakennusjärjestelmästä myöhemmin tässä kirjassa.
+
+Alla olevassa esimerkissä suoritan binäärisuoritettavaa tiedostoa
+nimeltä `hello_world`, jonka kääntäjä on luonut sen jälkeen
+`zig build`-komento.
+
+```bash
+./zig-out/bin/hello_world
+```
+
+```
+Hello, world!
+```
+
+
+
+### Koodin kääntäminen suoritettavaksi tiedostoksi {#sec-compile-code}
+
+Voit kääntää Zig-koodisi binäärisuoritustiedostoksi suorittamalla komennon `build-exe`
+`zig`-kääntäjästä. Sinun tarvitsee vain luetella kaikki Zig-moduulit, jotka haluat rakentaa jälkeen
+`build-exe`-komento välilyönneillä erotettuna. Alla olevassa esimerkissä kokoamme hypoteettista
+moduuli nimeltä `foo.zig`.
+
+```bash
+zig build-exe src/foo.zig
+```
+
+Koska rakennamme suoritettavaa tiedostoa, `zig`-kääntäjä etsii `main()`-funktiota
+joka on ilmoitettu missä tahansa luettelossasi `build-exe`-komennon jälkeen. Jos
+kääntäjä ei löydä jostain ilmoitettua `main()`-funktiota,
+käännösvirhe tulee esiin, varoittaa tästä virheestä.
+
+`zig`-kääntäjä tarjoaa myös `build-lib`- ja `build-obj`-komennot, jotka toimivat
+täsmälleen samalla tavalla kuin `build-exe`-komento. Ainoa ero on, että he kokoavat sinun
+Zig-moduulit kannettavaan C ABI -kirjastoon tai vastaavasti objektitiedostoihin.
+
+`build-exe`-komennon tapauksessa `zig` luo binaarisen suoritettavan tiedoston.
+kääntäjä projektisi juurihakemistossa.
+Jos katsomme nyt nykyisen hakemistomme sisältöä yksinkertaisella `ls`-komennolla, voimme
+katso kääntäjän luoma binääritiedosto nimeltä `foo`.
+
+```bash
+ls
+```
+
+```
+build.zig  build.zig.zon  foo  src
+```
+
+Jos suoritan tämän binaarisen suoritettavan tiedoston, saan "Hello World"-sanoman terminaaliin
+, kuten odotimme.
+
+```bash
+./foo
+```
+
+```
+Hello, world!
+```
+
+
+### Käännä ja suorita samalla kertaa {#sec-compile-run-code}
+
+Edellisessä osiossa esitin `zig build-exe`-komennon, joka
+kokoaa Zig-moduulit suoritettavaksi tiedostoksi. Tämä tarkoittaa kuitenkin sitä, että
+Suoritettavan tiedoston suorittamiseksi meidän on suoritettava kaksi eri komentoa.
+Ensin `zig build-exe`-komento ja sitten kutsumme suoritettavaa tiedostoa
+kääntäjän luoma.
+
+Mutta entä jos haluaisimme suorittaa nämä kaksi vaihetta,
+kaikki kerralla, yhdellä käskyllä? Voimme tehdä sen käyttämällä `zig run`
+komento.
+
+```bash
+zig run src/foo.zig
+```
+
+```
+Hello, world!
+```
+
+
+## Miten oppia Zig?
+
+Mitkä ovat parhaat strategiat Zigin oppimiseen?
+Ensinnäkin tietysti tämä kirja auttaa sinua paljon matkallasi Zigin läpi.
+Mutta tarvitset myös lisäresursseja, jos haluat olla todella hyvä Zigissä.
+
+Ensimmäisenä vinkkinä voit liittyä yhteisöön Zig-ohjelmoijien kanssa saadaksesi apua
+, kun tarvitset sitä:
+
+- Ziggit-yhteisö: <https://ziggit.dev/>;
+- Discord, Slack, Telegram ja muut: <https://ziglang.org/community/>;
+
+Nyt yksi parhaista tavoista oppia Zig on yksinkertaisesti lukea Zig-koodia. Kokeile
+lukea Zig-koodia usein, niin asiat tulevat selvemmiksi.
+C/C++-ohjelmoija voisi myös antaa sinulle saman vinkin.
+Koska tämä strategia todella toimii!
+
+Mistä löydät zig-koodin luettavaksi?
+Itse olen sitä mieltä, että paras tapa lukea Zig-koodia on lukea lähdekoodi
+Zig Standard -kirjasto. Zig-standardikirjasto on saatavilla [`lib/std`-kansiossa](https://codeberg.org/ziglang/zig/src/branch/master/lib/std)[^zig-lib-std] osoitteessa
+Zigin virallinen GitHub-arkisto. Siirry tähän kansioon ja aloita Zig-moduuleiden tutkiminen.
+
+Hyvä vaihtoehto on myös lukea koodia muista suurista Zig-tiedostoista
+koodikannat, kuten:
+
+1. [pelimoottori Mach](https://github.com/hexops/mach)[^mach].
+1. [LLama 2 LLM -mallin toteutus Zigissä](https://github.com/cgbur/llama2.zig/tree/main)[^ll2].
+1. [rahoitustapahtumatietokanta `tigerbeetle`](https://github.com/tigerbeetle/tigerbeetle)[^tiger].
+1. [komentorivin argumenttien jäsentäjä `zig-clap`](https://github.com/Hejsil/zig-clap)[^clap].
+1. [UI-kehys `capy`](https://github.com/capy-ui/capy)[^capy].
+1. [Language Protocol -toteutus Zigille, `zls`](https://github.com/zigtools/zls)[^zls].
+1. [tapahtumasilmukkakirjasto `libxev`](https://github.com/mitchellh/libxev)[^xev].
+
+[^xev]: <https://github.com/mitchellh/libxev>
+[^zls]: <https://github.com/zigtools/zls>
+[^capy]: <https://github.com/capy-ui/capy>
+[^clap]: <https://github.com/Hejsil/zig-clap>
+[^tiger]: <https://github.com/tigerbeetle/tigerbeetle>
+[^ll2]: <https://github.com/cgbur/llama2.zig/tree/main>
+[^mach]: <https://github.com/hexops/mach>
+
+Kaikki nämä varat ovat saatavilla GitHubissa,
+ja tämä on hienoa, koska voimme käyttää GitHub-hakupalkkia hyödyksemme,
+löytääksesi kuvaukseemme sopivan Zig-koodin.
+Voit esimerkiksi aina sisällyttää `lang:Zig` GitHubin hakupalkkiin, kun
+etsivät tiettyä mallia. Tämä rajoittaa haun vain Zig-moduuleihin.
+
+[^zig-lib-std]: <https://codeberg.org/ziglang/zig/src/branch/master/lib/std>
+
+Hyvä vaihtoehto on myös tutustua verkkoresursseihin ja dokumentaatioon.
+Tässä on nopea luettelo resursseista, joita käytän henkilökohtaisesti aika ajoin oppimiseen
+lisää kielestä joka päivä:
+
+- Zig-kielen viite: <https://ziglang.org/documentation/master/>;
+- Zig-standardikirjaston viite: <https://ziglang.org/documentation/master/std/>;
+- Zig Guide: <https://zig.guide/>;
+- Karl Seguinin blogi: <https://www.openmymind.net/>;
+- Zig-uutiset: <https://zig.news/>;
+- Lue koodi, jonka on kirjoittanut yksi Zig-ydintiimin jäsenistä: <https://github.com/kubkon>;
+- Jotkut livekoodausistunnot lähetetään Zig Showtime Youtube -kanavalla: <https://www.youtube.com/@ZigSHOWTIME/videos>;
+
+
+Toinen loistava strategia zigin oppimiseen tai rehellisesti minkä tahansa kielen oppimiseen,
+on harjoitella sitä ratkaisemalla harjoituksia. Esimerkiksi siellä on kuuluisa arkisto
+Zig-yhteisössä nimeltä [Ziglings](https://ziglings.org)[^ziglings]
+, joka sisältää yli 100 pientä harjoitusta, jotka voit ratkaista. Se on arkisto
+pieniä Zig-kielellä kirjoitettuja ohjelmia, jotka ovat tällä hetkellä rikki, ja sinun vastuullasi on
+korjata nämä ohjelmat ja saada ne toimimaan uudelleen.
+
+[^ziglings]: <https://ziglings.org>.
+
+Kuuluisa tekninen YouTuber, joka tunnetaan nimellä *The Primeagen*, julkaisi myös joitain videoita (YouTubessa)
+jossa hän ratkaisee nämä Ziglingsin harjoitukset. Ensimmäinen video on nimetty
+["Trying Zig Part 1"](https://www.youtube.com/watch?v=OPuztQfM3Fg&t=2524s&ab_channel=TheVimeagen)[^prime1].
+
+[^prime1]: <https://www.youtube.com/watch?v=OPuztQfM3Fg&t=2524s&ab_channel=TheVimeagen>.
+
+Toinen loistava vaihtoehto on ratkaista [Advent of Code -harjoitukset](https://adventofcode.com/)[^advent-code].
+Jotkut ihmiset ovat jo ottaneet aikaa harjoitusten oppimiseen ja ratkaisemiseen, ja he julkaisivat
+heidän ratkaisunsa myös GitHubissa, joten jos tarvitset resursseja vertailla ratkaisemisen aikana
+harjoituksia, voit tarkastella näitä kahta arkistoa:
+
+- <https://github.com/SpexGuy/Zig-AoC-Template>;
+- <https://github.com/fjebaker/advent-of-code-2022>;
+
+[^advent-code]: <https://adventofcode.com/>
+
+
+
+
+
+
+## Uusien objektien luominen Zigissä (eli tunnisteet) {#sec-assignments}
+
+Puhutaanpa lisää Zigin esineistä. Lukijat, joilla on aikaisempaa kokemusta
+muiden ohjelmointikielien kanssa saattaa tuntea tämän käsitteen läpi
+eri nimi, kuten: "variable" tai "identifier". Tässä kirjassa valitsen
+käyttää termiä "object" viittaamaan tähän käsitteeseen.
+
+Luodaksemme uuden objektin (tai uuden "identifier") Zigissä käytämme
+avainsanat `const` tai `var`. Nämä avainsanat määrittävät, onko objekti
+luomasi on muuttuva vai ei.
+Jos käytät `const`, niin objekti olet
+luominen on vakio (tai muuttumaton) objekti, mikä tarkoittaa, että kun olet ilmoittanut tämän objektin, sinä
+ei voi enää muuttaa tähän objektiin tallennettua arvoa.
+
+Toisaalta, jos käytät `var`, luot muuttuvan (tai muuttuvan) objektin.
+Voit muuttaa tämän objektin arvoa niin monta kertaa kuin haluat. Käyttämällä
+avainsana `var` Zigissä on samanlainen kuin avainsanojen `let mut` käyttäminen Rustissa.
+
+### Vakio-objektit vs. muuttuva objektit
+
+Alla olevassa koodiesimerkissä luomme uuden vakioobjektin nimeltä `age`.
+Tämä objekti tallentaa numeron, joka edustaa jonkun ikää. Kuitenkin tämä koodi esimerkki
+ei käännä onnistuneesti. Koska seuraavalla koodirivillä yritämme muuttaa arvoa
+objektin `age` arvosta 25.
+
+`zig`-kääntäjä havaitsee, että yritämme muuttaa
+objektin/tunnisteen arvo, joka on vakio, ja tästä syystä
+kääntäjä tuo esiin käännösvirheen ja varoittaa meitä virheestä.
+
+```{zig}
+#| eval: false
+const age = 24;
+// The line below is not valid!
+age = 25;
+```
+
+```
+t.zig:10:5: error: cannot assign to constant
+    age = 25;
+      ~~^~~
+```
+
+Joten jos haluat muuttaa objektisi arvoa, sinun on muutettava muuttumaton (tai "constant")
+objekti muuttuvaksi (tai "variable") objektiksi. Voit tehdä sen käyttämällä avainsanaa `var`.
+Tämä avainsana tarkoittaa "variable", ja kun käytät tätä avainsanaa johonkin objektiin, olet
+kertomalla Zig-kääntäjälle, että tähän objektiin liittyvä arvo saattaa muuttua jossain vaiheessa.
+
+Joten jos palaamme edelliseen esimerkkiin ja muutamme ilmoituksen
+`age`-objekti käyttää avainsanaa `var`, jolloin ohjelma käännetään onnistuneesti.
+Koska nyt `zig`-kääntäjä havaitsee, että muutamme
+objekti, joka sallii tämän toiminnan, koska se on "variable object".
+
+Jos kuitenkin katsot alla olevaa esimerkkiä, huomaat, että emme ole vain ilmoittaneet
+`age`-objekti `var`-avainsanalla, mutta olemme myös nimenomaisesti lisänneet tietotyypin
+`age`-objektista, jonka tyyppi on tällä kertaa `u8`. Perusideana on, että kun käytämme muuttuvaa/muuttuvaa objektia,
+Zig-kääntäjä pyytää meitä olemaan selkeämpiä siinä, mitä haluamme, olla selvempiä
+siitä, mitä koodimme tekee. Tämä tarkoittaa sitä, että haluamme tietotyypit selkeämmin
+käyttää esineissämme.
+
+Siksi, jos muutat objektisi muuttuvaksi/muuttuvaksi objektiksi, muista vain aina
+merkitse objektin tyyppi nimenomaisesti koodiisi. Muuten Zig-kääntäjä saattaa nostaa
+käännösvirhe, joka pyytää sinua muuttamaan objektisi takaisin `const`-objektiksi, tai
+antaa objektillesi "explicit type".
+
+
+```{zig}
+#| build_type: "run"
+#| auto_main: true
+var age: u8 = 24;
+age = 25;
+```
+
+
+### Ilmoittaminen ilman alkuarvoa
+
+Oletuksena, kun ilmoitat uuden objektin Zigissä, sinun on annettava se
+alkuarvo. Toisin sanoen tämä tarkoittaa
+että meidän täytyy julistaa ja samalla alustaa jokainen objekti, jonka olemme
+luoda lähdekoodissamme.
+
+Toisaalta voit itse asiassa ilmoittaa uuden objektin lähdekoodissasi,
+eikä anna sille nimenomaista arvoa. Mutta meidän on käytettävä sitä varten erityistä avainsanaa,
+joka on avainsana `undefined`.
+
+On tärkeää korostaa, että sinun tulee välttää `undefined`:n käyttöä niin paljon kuin mahdollista.
+Koska kun käytät tätä avainsanaa, jätät objektisi alustamatta ja sen seurauksena
+Jos koodisi jostain syystä käyttää tätä objektia, kun se on alustamaton, niin käytät sitä ehdottomasti
+Ohjelmassasi on määrittelemätöntä toimintaa ja suuria virheitä.
+
+Alla olevassa esimerkissä ilmoitan `age`-objektin uudelleen. Mutta tällä kertaa
+En anna sille alkuarvoa. Muuttuja alustetaan vain osoitteessa
+toinen koodirivi, johon tallennan numeron 25 tähän objektiin.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+var age: u8 = undefined;
+age = 25;
+```
+
+Kun nämä asiat ovat mielessä, muista vain, että sinun tulee välttää niin paljon kuin mahdollista `undefined`:n käyttöä koodissasi.
+Ilmoita ja alusta aina objektisi. Koska tämä antaa sinulle paljon enemmän turvallisuutta ohjelmassasi.
+Mutta jos sinun täytyy todella ilmoittaa objekti alustamatta sitä...
+`undefined`-avainsana on tapa tehdä se Zigissä.
+
+
+### Käyttämättömiä objekteja ei ole
+
+Jokainen objekti (joka on vakio tai muuttuja), jonka määrität Zigissä **must be used in some way**. Voit antaa tämän esineen
+funktiokutsuun, funktion argumenttina tai voit käyttää sitä toisessa lausekkeessa
+toisen objektin arvon laskemiseksi, tai voit kutsua tähän kuuluvan menetelmän
+tietty kohde.
+
+Ei ole väliä millä tavalla käytät sitä. Niin kauan kuin käytät sitä.
+Jos yrität rikkoa tätä sääntöä, eli jos yrität julistaa objektin, mutta et käytä sitä,
+`zig`-kääntäjä ei käännä Zig-lähdekoodiasi, ja se antaa virheen
+varoitusviesti, että koodissasi on käyttämättömiä kohteita.
+
+Osoitetaan tämä esimerkillä. Alla olevassa lähdekoodissa ilmoitamme vakioobjektin
+nimeltä `age`. Jos yrität kääntää yksinkertaisen Zig-ohjelman tällä alla olevalla koodirivillä,
+kääntäjä palauttaa virheilmoituksen alla esitetyllä tavalla:
+
+```{zig}
+#| build_type: "ast"
+#| auto_main: false
+const age = 15;
+```
+
+```
+t.zig:4:11: error: unused local constant
+    const age = 15;
+          ^~~
+```
+
+Aina kun ilmoitat uuden objektin Zigissä, sinulla on kaksi vaihtoehtoa:
+
+1. käytät joko tämän objektin arvoa;
+1. tai hylkäät kohteen arvon;
+
+Jos haluat nimenomaisesti hylätä minkä tahansa objektin arvon (vakio tai muuttuja), sinun tarvitsee vain määrittää
+tämä kohde Zigin erikoismerkille, joka on alaviiva (`_`).
+Kun määrität objektin alaviivalle, kuten alla olevassa esimerkissä, `zig`-kääntäjä
+hylkää tämän kohteen arvon.
+
+Alla olevasta esimerkistä näet, että tällä kertaa kääntäjä ei tehnyt sitä
+valittaa mistä tahansa "unused constant", ja käänsi onnistuneesti lähdekoodimme.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+// It compiles!
+const age = 15;
+_ = age;
+```
+
+Muista nyt, että aina kun määrität tietyn objektin alaviivaan, tämä objekti
+on olennaisesti tuhoutunut. Kääntäjä hylkää sen. Tämä tarkoittaa, että et voi enää
+käytä tätä objektia edelleen koodissasi. Sitä ei ole enää olemassa.
+
+Joten jos yrität käyttää vakioa `age` alla olevassa esimerkissä, sen jälkeen, kun olemme hylänneet sen,
+saa kovan virheilmoituksen kääntäjästä (puhutaan "pointless discard":stä)
+varoittaa tästä virheestä.
+
+```{zig}
+#| eval: false
+// It does not compile.
+const age = 15;
+_ = age;
+// Using a discarded value!
+std.debug.print("{d}\n", .{age + 2});
+```
+
+```
+t.zig:7:5: error: pointless discard
+    of local constant
+```
+
+
+Tämä sama sääntö pätee muuttuviin objekteihin. Jokaista muuttuvaa objektia on myös käytettävä
+jollain tavalla. Ja jos määrität alaviivalle muuttuvan objektin,
+myös tämä objekti hylätään, etkä voi enää käyttää tätä objektia.
+
+
+
+### Jokainen muuttuva objekti on muutettava
+
+Jokainen lähdekoodiisi luomasi muuttuva objekti on muunnettava jossain vaiheessa.
+Toisin sanoen, jos ilmoitat objektin muuttujaksi
+objekti, avainsanalla `var`, etkä muuta tämän objektin arvoa
+jossain vaiheessa tulevaisuudessa `zig`-kääntäjä havaitsee tämän,
+ja se antaa virheilmoituksen, joka varoittaa sinua tästä virheestä.
+
+Tämän taustalla on ajatus, että jokaisen Zigissä luomasi objektin tulisi olla mieluiten a
+vakioobjekti, ellet todella tarvitse objektia, jonka arvo on
+muuttaa ohjelman suorittamisen aikana.
+
+Joten jos yritän ilmoittaa muuttuvan objektin, kuten `where_i_live` alla,
+enkä muuta tämän objektin arvoa millään tavalla,
+`zig`-kääntäjä antaa virheilmoituksen lauseella "variable is never mutated".
+
+```{zig}
+#| eval: false
+var where_i_live = "Belo Horizonte";
+_ = where_i_live;
+```
+
+```
+t.zig:7:5: error: local variable is never mutated
+t.zig:7:5: note: consider using 'const'
+```
+
+## Primitiiviset tietotyypit {#sec-primitive-data-types}
+
+Zigillä on käytettävissäsi monia erilaisia ​​primitiivisiä tietotyyppejä.
+Näet täydellisen luettelon käytettävissä olevista tietotyypeistä virkailijalla
+[Kielen viitesivu](https://ziglang.org/documentation/master/#Primitive-Types)[^lang-data-types].
+
+[^lang-data-types]: <https://ziglang.org/documentation/master/#Primitive-Types>.
+
+Mutta tässä on nopea lista:
+
+- Etumerkittömät kokonaisluvut: `u8`, 8-bittinen kokonaisluku; `u16`, 16-bittinen kokonaisluku; `u32`, 32-bittinen kokonaisluku; `u64`, 64-bittinen kokonaisluku; `u128`, 128-bittinen kokonaisluku.
+- Etumerkeiset kokonaisluvut: `i8`, 8-bittinen kokonaisluku; `i16`, 16-bittinen kokonaisluku; `i32`, 32-bittinen kokonaisluku; `i64`, 64-bittinen kokonaisluku; `i128`, 128-bittinen kokonaisluku.
+- Float number: `f16`, 16-bittinen liukuluku; `f32`, 32-bittinen liukuluku; `f64`, 64-bittinen liukuluku; `f128`, 128-bittinen liukuluku;
+- Boolen arvo: `bool`, edustaa oikeita tai vääriä arvoja.
+- C ABI -yhteensopivat tyypit: `c_long`, `c_char`, `c_short`, `c_ushort`, `c_int`, XID9110c8b0258X ja monet muut.
+- Osoittimen kokoiset kokonaisluvut: `isize` ja `usize`.
+
+
+
+
+
+
+
+## Taulukot {#sec-arrays}
+
+Luot taulukoita Zigissä käyttämällä syntaksia, joka muistuttaa C-syntaksia.
+Ensin määrität taulukon koon (eli taulukkoon tallennettavien elementtien lukumäärän)
+jonka haluat luoda hakasulkeiden sisällä.
+
+Sitten määrität tähän taulukkoon tallennettavien elementtien tietotyypit.
+Kaikilla Zig-taulukossa olevilla elementeillä on oltava sama tietotyyppi. Et esimerkiksi voi sekoittaa elementtejä
+tyyppiä `f32` sisältäen `i32`-tyypin elementtejä samassa taulukossa.
+
+Sen jälkeen luettelet vain arvot, jotka haluat tallentaa tähän taulukkoon
+aaltosulkeiden pari.
+Alla olevassa esimerkissä luon kaksi vakioobjektia, jotka sisältävät erilaisia ​​taulukoita.
+Ensimmäinen objekti sisältää 4 kokonaisluvun joukon, kun taas toinen objekti,
+3 liukulukuarvon joukko.
+
+Nyt sinun pitäisi huomata, että objektissa `ls` olen
+ei nimenomaisesti määritä suluissa olevan taulukon kokoa. Sen sijaan
+käytän kirjaimellista arvoa (kuten arvoa 4, jota käytin `ns`-objektissa), olen
+käyttämällä erikoismerkkien alaviivaa (`_`). Tämä syntaksi kertoo `zig`-kääntäjälle
+täyttääksesi tämän kentän kiharoiden sisällä lueteltujen elementtien lukumäärällä.
+Joten tämä syntaksi `[_]` on laiskoille (tai älykkäille) ohjelmoijille, jotka jättävät työnsä
+laskemalla kuinka monta elementtiä on kääntäjän aaltosulkeissa.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const ns = [4]u8{48, 24, 12, 6};
+const ls = [_]f64{432.1, 87.2, 900.05};
+_ = ns; _ = ls;
+```
+
+On syytä huomata, että nämä ovat staattisia taulukoita, mikä tarkoittaa
+ne eivät voi kasvaa kooltaan.
+Kun olet ilmoittanut taulukon, et voi muuttaa sen kokoa.
+Tämä on hyvin yleistä matalan tason kielillä.
+Koska matalan tason kielet haluavat yleensä antaa sinulle (ohjelmoijalle) täyden hallinnan muistiin,
+ja tapa, jolla taulukoita laajennetaan, liittyy läheisesti
+muistin hallinta.
+
+
+### Taulukon elementtien valinta {#sec-select-array-elem}
+
+Yksi hyvin yleinen toiminto on valita tiettyjä osia lähdekoodissasi olevasta taulukosta.
+Zigissä voit valita tietyn elementin taulukostasi antamalla tämän tietyn indeksin
+elementti suluissa objektin nimen jälkeen. Alla olevassa esimerkissä valitsen kolmannen elementin
+`ns`-taulukko. Huomaa, että Zig on "nollaindeksoitu"-pohjainen kieli,
+kuten C, C++, Rust, Python ja monet muut kielet.
+
+Huomaa myös alla olevassa esimerkissä, että käytän `stdout.print()`-funktiota tämän elementin arvon tulostamiseen terminaaliin.
+Olemme nähneet tämän toiminnon aiemmin `main.zig`-tiedostossa kohdassa @sec-main-file. Näet tämän `stdout`-objektin mainittavan jatkuvasti
+koko tämän kirjan. Tämä objekti antaa meille pääsyn käyttöjärjestelmän stdout-kanavaan, jonka kautta voit tulostaa/näyttää tulosteen käyttäjälle
+ohjelmasi. Puhumme siitä lisää kohdassa @sec-filesystem.
+
+Lyhyyden vuoksi jätän jatkuvasti pois tämän `stdout`-objektin määritelmän koodiesimerkeistä, jotta en toista itseäni
+ja vievät tarpeettoman tilan tässä kirjassa. Muista toistaiseksi, että voit aina palata kohdassa @sec-main-file
+nähdäksesi tämän `stdout`-objektin täydellisen määritelmän.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const ns = [4]u8{48, 24, 12, 6};
+try stdout.print("{d}\n", .{ ns[2] });
+try stdout.flush();
+```
+
+Sitä vastoin voit myös valita tiettyjä viipaleita (tai osia) taulukosta käyttämällä a
+alueen valitsin. Jotkut ohjelmoijat kutsuvat näitä valitsimia myös nimellä "slice-valitsimet",
+ja ne ovat myös Rustissa, ja niillä on täsmälleen sama syntaksi kuin Zigissä.
+Joka tapauksessa alueen valitsin on erityinen lauseke Zigissä, joka määrittää
+useita indeksejä, ja sen syntaksi on `start..end`.
+
+Alla olevassa esimerkissä koodin toisella rivillä
+`sl`-objekti tallentaa osan (tai osan)
+`ns`-taulukko. Tarkemmin sanottuna elementit indeksissä 1 ja 2
+`ns`-taulukossa.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const ns = [4]u8{48, 24, 12, 6};
+const sl = ns[1..3];
+_ = sl;
+```
+
+Kun käytät `start..end`-syntaksia,
+alueen valitsimen "end tail" ei sisällä
+mikä tarkoittaa, että lopussa oleva indeksi ei sisälly alueeseen, joka on
+valittu joukosta.
+Siksi syntaksi `start..end` tarkoittaa käytännössä `start..end - 1`.
+
+Voit esimerkiksi luoda osion, joka kulkee ensimmäisestä
+taulukon viimeiset elementit `ar[0..ar.len]`-syntaksin avulla
+Toisin sanoen se on siivu
+käyttää kaikkia taulukon elementtejä.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const ar = [4]u8{48, 24, 12, 6};
+const sl = ar[0..ar.len];
+_ = sl;
+```
+
+Voit myös käyttää syntaksia `start..` alueen valitsimessa.
+joka käskee `zig`-kääntäjän valitsemaan osan taulukosta
+joka alkaa `start`-indeksistä taulukon viimeiseen elementtiin asti.
+Alla olevassa esimerkissä valitsemme alueen indeksistä 1
+taulukon loppuun asti.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const ns = [4]u8{48, 24, 12, 6};
+const sl = ns[1..];
+_ = sl;
+```
+
+
+### Lisää viipaleista
+
+Kuten aiemmin keskustelimme, Zigissä voit valita tiettyjä osia olemassa olevasta
+joukko. Tätä kutsutaan nimellä *slicing* Zig [@zigguide]:ssä, koska kun valitset osan
+taulukosta, luot slice-objektin kyseisestä taulukosta.
+
+Slice-objekti on pohjimmiltaan osoitinobjekti, johon liittyy pituusnumero.
+Osoitinobjekti osoittaa viipaleen ensimmäiseen elementtiin ja
+pituusnumero kertoo `zig`-kääntäjälle kuinka monta elementtiä tässä siivussa on.
+
+> Viipaleita voidaan pitää parina `[*]T` (osoitin dataan) ja `usize` (elementtimäärä) [@zigguide].
+
+Viipaleen sisällä olevan osoittimen kautta pääset käsiksi elementteihin (tai arvoihin)
+jotka ovat tämän alkuperäisestä taulukosta valitsemasi alueen (tai osan) sisällä.
+Mutta pituusnumero (johon pääset slice-objektisi ominaisuuden `len` kautta)
+on todella suuri parannus (esimerkiksi C-taulukoihin verrattuna), jonka Zig tuo pöytään täällä.
+
+Koska tällä pituusnumerolla
+`zig`-kääntäjä voi helposti tarkistaa, yritätkö käyttää indeksiä, joka on tämän tietyn osion rajojen ulkopuolella,
+tai jos aiheutat puskurin ylivuotoongelmia. Alla olevassa esimerkissä
+käytämme osion `sl` ominaisuutta `len`, joka kertoo meille, että tämä osio
+siinä on 2 elementtiä.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const ns = [4]u8{48, 24, 12, 6};
+const sl = ns[1..3];
+try stdout.print("{d}\n", .{sl.len});
+try stdout.flush();
+```
+
+
+### Taulukko-operaattorit
+
+Zigissä on kaksi erittäin hyödyllistä taulukkooperaattoria.
+Taulukon ketjutusoperaattori (`++`) ja taulukon kertolaskuoperaattori (`**`). Kuten nimestä voi päätellä,
+nämä ovat taulukkooperaattoreita.
+
+Yksi tärkeä yksityiskohta näistä kahdesta operaattorista on, että ne toimivat
+vain kun molemmilla operandiilla on koko (tai "length"), joka on käännösaika tiedossa.
+Aiomme puhua lisää
+erot "kääntöaikaisesti tunnettu":n ja "suoritusaikaisesti tunnettu":n välillä @sec-kääntöaika:ssä.
+Mutta toistaiseksi pidä tämä tieto mielessä, että et voi käyttää näitä operaattoreita kaikissa tilanteissa.
+
+Yhteenvetona voidaan todeta, että `++`-operaattori luo uuden taulukon, joka on ketjutus,
+molemmista operandeina toimitetuista taulukoista. Joten lauseke `a ++ b` tuottaa
+uusi taulukko, joka sisältää kaikki elementit taulukoista `a` ja `b`.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const a = [_]u8{1,2,3};
+const b = [_]u8{4,5};
+const c = a ++ b;
+try stdout.print("{any}\n", .{c});
+try stdout.flush();
+```
+
+Tämä `++`-operaattori on erityisen hyödyllinen merkkijonojen yhdistämiseen.
+Merkkijonot on kuvattu yksityiskohtaisesti kohdassa @sec-zig-strings. Yhteenvetona merkkijonoobjekti Zigissä
+on pohjimmiltaan tavujen joukko. Joten voit käyttää tätä taulukon ketjutusoperaattoria
+ketjuttaa merkkijonot tehokkaasti yhteen.
+
+Sitä vastoin `**`-operaattoria käytetään monistamaan taulukon monikerta
+kertaa. Toisin sanoen lauseke `a ** 3` luo uuden taulukon
+joka sisältää taulukon `a` elementit toistettuna 3 kertaa.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const a = [_]u8{1,2,3};
+const c = a ** 2;
+try stdout.print("{any}\n", .{c});
+try stdout.flush();
+```
+
+
+### Suoritusaika vs. kääntöaikaisesti tunnettu pituus viipaleissa
+
+Aiomme puhua paljon eroista tunnetun käännösajan välillä
+ja suoritusaika tunnetaan tässä kirjassa, erityisesti @sec-kääntöaika.
+Mutta perusajatuksena on, että asia on käännösajan tiedossa, kun tiedämme
+kaikki (arvo, attribuutit ja ominaisuudet) tästä asiasta käännöshetkellä.
+Sitä vastoin ajonaikaisesti tunnettu asia on, kun asian tarkka arvo lasketaan vasta ajon aikana.
+Siksi emme tiedä tämän asian arvoa käännösaikana, vain ajon aikana.
+
+Olemme oppineet kohdasta @sec-select-array-elem, että viipaleet luodaan käyttämällä *range selector*,
+joka edustaa useita indeksejä. Kun tämä "range of indexes" (eli sekä tämän alueen alku että loppu)
+tunnetaan käännöshetkellä, luotava slice-objekti on itse asiassa konepellin alla vain
+yhden kohteen osoitin taulukkoon.
+
+Sinun ei tarvitse nyt tarkasti ymmärtää, mitä se tarkoittaa. Aiomme puhua paljon vihjeistä
+kohteessa @sec-pointer. Ymmärrä nyt vain, että kun indeksialue on tiedossa käännöshetkellä,
+luotava viipale on vain osoitin taulukkoon, johon liittyy pituusarvo, joka
+kertoo viipaleen koon.
+
+Jos sinulla on tällainen slice-objekti, eli slice, jolla on käännösajan tunnettu alue,
+voit käyttää yleisiä osoitintoimintoja tämän slice-objektin päällä. Voit esimerkiksi
+poista tämän osion osoitin käyttämällä `.*`-menetelmää, kuten
+tehdä tavallisella osoitinobjektilla.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const arr1 = [10]u64 {
+    1, 2, 3, 4, 5,
+    6, 7, 8, 9, 10
+};
+// This slice has a compile-time known range.
+// Because we know both the start and end of the range.
+const slice = arr1[1..4];
+_ = slice;
+```
+
+
+Toisaalta, jos indeksien aluetta ei tunneta käännöshetkellä, slice-objekti
+luotava osoitin ei ole enää osoitin, joten se ei tue osoitintoimintoja.
+Esimerkiksi ehkä aloitusindeksi tiedetään käännöshetkellä, mutta loppuindeksi ei. sellaisessa
+Tässä tapauksessa viipaleen alue tulee vain ajonaikaiseksi tunnetuksi.
+
+Tiedoston lukeminen on eräänlainen toiminto, joka yleensä johtaa pituuksiin, jotka tunnetaan vain
+suoritusaika. Koska et yleensä tiedä tiedoston kokoa etukäteen. Ehkä tänään tiedosto
+on kooltaan 4,5 kt. Mutta ehkä huomenna lisäät tiedostoon lisää rivejä ja se on
+koko kasvaa 4,8 kilotavuun. Koska tiedosto on jotain ulkoista (se on riippumaton) lähdekoodistasi
+, voit muuttaa sitä helposti koodiisi vaikuttamatta.
+Tämän seurauksena tiedoston koon tunteminen käännöshetkellä voi olla huijausta tai mahdotonta.
+
+Koska meillä on `comptime` Zigissä, on luultavasti joitain tekniikoita, joita voidaan käyttää
+laskea tiedoston koko käännöshetkellä. Mutta luulen, että ymmärsit pointtini joka tapauksessa, eikö?
+Näistä tekniikoista huolimatta ohjelmoijat eivät yleensä kirjoita ohjelmiaan vain laskeakseen
+tiedoston koko käännöshetkellä.
+
+Jos ohjelmoija haluaa lukea tiedoston, hän yleensä kirjoittaa ohjelman, joka joko:
+
+1. lukee tiedostosta kiinteän määrän tavuja (joka on alla esitetty koodiesimerkki).
+2. laskee ensin tiedoston koon (yleensä tämä tehdään paikkailmaisimilla), sitten yrittää varata puskurin, johon mahtuu tiedoston datamäärä, ja sitten lukee koko tiedoston tähän varattuun puskuriin.
+3. lukee tiedoston jatkuvana tavuvirtana.
+
+Kummassakaan näistä kolmesta tapauksesta ohjelmasi ei voi silti ennustaa tiedoston tarkkaa kokoa
+käännösaikana. Jopa ensimmäisessä tapauksessa, jossa määritämme kiinteän määrän tavuja
+jonka haluamme lukea tiedostosta.
+
+Alla näkyvä koodinpätkä on esimerkki ensimmäisestä tapauksesta. Tässä katkelmassa yritämme aina
+lukeaksesi tiedoston ensimmäiset 1024 tavua. Koska olemme määrittäneet tämän kiinteän tavumäärän (1024 tavua) lähdekoodissa, tiedämme
+`file_buffer`-objektin pituus (se on 1024) käännöshetkellä. Emme kuitenkaan tiedä käyttämiemme tietojen pituutta
+itse asiassa saanut tiedostosta.
+
+Toisin sanoen emme tiedä `nbytes`-objektiin tallennettua arvoa, joka edustaa
+kuinka monta tavua dataa todella luemme tiedostosta. Tämän objektin arvo tiedetään vain ajon aikana, ja
+siksi emme tiedä (kääntämishetkellä) `std.debug.print()`-kutsussa näytölle tulostettavan viipaleen kokoa.
+
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+const std = @import("std");
+
+fn read_file(path: []const u8, buffer: []u8, io: std.Io) !usize {
+    const file = try std.Io.Dir.cwd().openFile(
+        io, path, .{}
+    );
+    defer file.close(io);
+
+    const nbytes = try file.readPositionalAll(
+        io, buffer[0..], 0
+    );
+    return nbytes;
+}
+
+pub fn main(init: std.process.Init) !void {
+    var gpa = std.heap.DebugAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var file_buffer = try allocator.alloc(u8, 1024);
+    defer allocator.free(file_buffer);
+    @memset(file_buffer[0..], 0);
+
+    const path = "../ZigExamples/file-io/shop-list.txt";
+    const nbytes = try read_file(
+        path, file_buffer[0..], init.io
+    );
+
+    std.debug.print("{s}", .{file_buffer[0..nbytes]});
+}
+```
+
+
+## Lohkot ja laajuudet {#sec-blocks}
+
+Lohkot luodaan Zigissä aaltosulkeiden parilla. Lohko on vain ryhmä
+lausekkeita (tai lauseita), jotka sijaitsevat aaltosulkeiden sisällä. Kaikki nämä lausekkeet
+ovat tämän aaltosulkeiden sisällä, kuuluu samaan soveltamisalaan.
+
+Toisin sanoen lohko rajaa laajuuden koodissasi.
+Saman lohkon sisällä määrittelemäsi objektit kuuluvat samaan
+laajuuteen ja ovat siksi käytettävissä tämän laajuuden sisällä.
+Samalla ne eivät ole käytettävissä tämän laajuuden ulkopuolella.
+Voit siis sanoa, että lohkoja käytetään rajoittamaan luomiesi objektien laajuutta
+lähdekoodissasi. Vähemmän teknisesti: lohkot määrittävät, missä kohdassa lähdekoodiasi
+voit käyttää kussakin objektissa.
+
+Lohko on siis joukko lausekkeita aaltosulkeiden sisällä,
+Ja jokaisella lohkolla on oma soveltamisalansa, joka on erotettu muista.
+Funktion runko on klassinen esimerkki lohkosta. If-lauseet, for- ja while-silmukat
+(ja mikä tahansa muu rakenne kielessä, joka käyttää aaltosulkeiden paria)
+ovat myös esimerkkejä lohkoista.
+
+Tämä tarkoittaa, että jokaisella if-lauseella, for-silmukalla jne.
+on oma erillinen laajuutensa.
+Siksi et voi käyttää for-silmukan (tai if-lauseen) sisällä määriteltyjä objekteja
+ulkoisessa laajuudessa — yrität käyttää objektia, joka kuuluu eri laajuuteen
+kuin nykyinen laajuutesi.
+
+
+Voit luoda lohkoja lohkojen sisällä useilla sisäkkäisillä tasoilla.
+Voit myös (halutessasi) antaa lohkolle tunnisteen kaksoispisteellä (`:`):
+kirjoita `label:` ennen aaltosuljetta, joka avaa lohkon. Kun lohkolla on tunniste,
+voit käyttää `break`-avainsanaa palauttamaan arvon lohkosta ikään kuin se olisi funktion runko.
+Kirjoita `break`, sen jälkeen lohkon tunniste muodossa `:label`
+ja lauseke, joka määrittää palautettavan arvon.
+
+Alla olevassa esimerkissä palautamme arvon `y`-objektista
+lohkosta `add_one` ja tallennamme tuloksen `x`-objektiin.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+var y: i32 = 123;
+const x = add_one: {
+    y += 1;
+    break :add_one y;
+};
+if (x == 124 and y == 124) {
+    try stdout.print("Hey!", .{});
+    try stdout.flush();
+}
+```
+
+
+
+
+
+## Miten merkkijonot toimivat Zigissä? {#sec-zig-strings}
+
+Ensimmäinen projekti, jonka rakennamme ja käsittelemme tässä kirjassa, on base64-enkooderi/dekooderi (@sec-base64).
+Jotta voimme rakentaa sellaisen, meidän täytyy ymmärtää paremmin, miten merkkijonot toimivat Zigissä.
+Käsitellään siis tätä Zigin osa-aluetta.
+
+Merkkijonot toimivat Zigissä hyvin samankaltaisesti kuin C:ssä, mutta niihin liittyy lisävaroituksia, jotka tuovat
+enemmän turvallisuutta ja tehokkuutta. Voisi sanoa, että Zig käyttää modernimpaa ja turvallisempaa tapaa
+hallita ja käyttää merkkijonoja.
+
+Merkkijono Zigissä on pohjimmiltaan mielivaltaisten tavujen taulukko eli tarkemmin sanottuna `u8`-arvojen taulukko.
+Tämä muistuttaa paljon C:n merkkijonoa, joka tulkitaan myös tavujen taulukkona, tai C:n tapauksessa
+`char`-arvojen taulukkona (`char` edustaa useimmissa järjestelmissä etumerkitöntä 8-bittistä kokonaislukua).
+
+Koska merkkijono Zigissä on taulukko, saat automaattisesti
+merkkijonon pituuden (eli taulukon pituuden) upotettuna itse arvoon. Tässä on
+iso ero! Zig-kääntäjä voi käyttää merkkijonoon upotettua pituutta
+tarkistaakseen koodissasi "puskurin ylivuoto"- ja "väärä muistin käyttö" -ongelmia.
+
+
+Tämänkaltaisen turvallisuuden saavuttamiseksi C:ssä sinun täytyy tehdä paljon työtä, joka tuntuu turhalta.
+Turvallisuus ei siis tule C:ssä automaattisesti, vaan sen saavuttaminen on paljon vaikeampaa. Jos haluat
+seurata merkkijonosi pituutta koko ohjelmasi ajan C:ssä, sinun täytyy ensin käydä läpi
+tavutaulukko, joka edustaa merkkijonoa, ja etsiä nollaelementin (`'\0'`) sijainti
+selvittääksesi, mihin taulukko päättyy eli kuinka monta elementtiä tavutaulukossa on.
+
+Voit tehdä tämän esimerkiksi seuraavasti C:ssä. Tässä esimerkissä C-merkkijono, joka on tallennettu
+objekti `array` on 25 tavua pitkä:
+
+```c
+#include <stdio.h>
+int main() {
+    char* array = "An example of string in C";
+    int index = 0;
+    while (1) {
+        if (array[index] == '\0') {
+            break;
+        }
+        index++;
+    }
+    printf("Number of elements in the array: %d\n", index);
+}
+```
+
+```
+Number of elements in the array: 25
+```
+
+
+Sinulla ei ole tällaista työtä Zigissä. Koska merkkijonon pituus on aina
+läsnä ja saatavilla itse merkkijonoarvossa. Voit helposti tarkastella merkkijonon pituutta
+`len`-attribuutin kautta. Esimerkkinä alla oleva `string_object`-objekti on 43 tavua pitkä:
+
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const string_object = "This is an example of string literal in Zig";
+try stdout.print("{d}\n", .{string_object.len});
+try stdout.flush();
+```
+
+
+Toinen asia on, että Zig olettaa aina, että merkkijonosi tavusarja on UTF-8-koodattu. Tämä ei välttämättä ole totta kaikille
+tavusarja, jonka kanssa työskentelet, mutta Zigin tehtävä ei todellakaan ole korjata merkkijonojesi koodausta
+(voit käyttää sitä varten [`iconv`](https://www.gnu.org/software/libiconv/)[^libiconv]).
+Nykyään suurimman osan tekstistä nykymaailmassamme, erityisesti verkossa, pitäisi olla UTF-8-koodattua.
+Joten jos merkkijonoliteraalisi ei ole UTF-8-koodattu, sinulla on todennäköisesti ongelmia Zigissä.
+
+[^libiconv]: <https://www.gnu.org/software/libiconv/>
+
+Otetaan esimerkiksi sana "Hello". UTF-8:ssa tämä merkkijono (H, e, l, l, o)
+on esitetty desimaalilukujen sekvenssillä 72, 101, 108, 108, 111. Heksadesimaalimuodossa tämä
+sekvenssi on `0x48`, `0x65`, `0x6C`, `0x6C`, `0x6F`. Joten jos otan tämän heksadesimaaliarvojen sarjan,
+ja pyydä Zigia tulostamaan tämä tavusarja merkkijonona (eli merkkijonona), sitten
+teksti "Hello" tulostetaan terminaaliin:
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const bytes = [_]u8{0x48, 0x65, 0x6C, 0x6C, 0x6F};
+try stdout.print("{s}\n", .{bytes});
+try stdout.flush();
+```
+
+
+
+### Viipaleen vs. sentinel-päättyvän taulukon käyttö {#sec-string-slice-versus-array}
+
+Muistiin kaikki Zig-merkkijonoarvot tallennetaan aina samalla tavalla.
+Ne yksinkertaisesti tallennetaan mielivaltaisten tavujen sekvensseinä/taulukoina muistiin. On kuitenkin olemassa kaksi eri tapaa
+että tätä tavujen sarjaa/joukkoa käytetään normaalisti ja sitä käytetään Zig-koodin sisällä, jotka ovat:
+
+- vartijapäätteinen joukko `u8`-arvoja.
+- tai osana `u8`-arvoja.
+
+Useimmiten käytät ja käytät merkkijonoja `u8`-arvojen osina.
+Erityisesti siksi, että useimmat Zig Standard Libraryn toiminnot vastaanottavat
+merkkijonoja syötteenä `u8`-arvojen viipaleina.
+
+
+#### Sentinel-päättyvät taulukot
+
+Sentinel-päätetyt taulukot Zigissä on kuvattu Zig[^sentinel]:n kieliviittauksessa.
+Yhteenvetona vartijapäätteinen taulukko on vain normaali taulukko, mutta tärkein ero tässä on, että ne
+sisältää "sentinel value" taulukon viimeisessä indeksissä/elementissä. Sentinel-päätteisellä joukolla
+upotat sekä taulukon pituuden että myös vartijaarvon itse objektisi tyyppiin.
+
+[^sentinel]: <https://ziglang.org/documentation/master/#Sentinel-Terminated-Arrays>.
+
+Jos esimerkiksi kirjoitat koodiisi merkkijonon arvon ja pyydät Zigia tulostamaan tämän arvon tietotyypin,
+yleensä saat tietotyypin muodossa `*const [n:0]u8`. Tietotyypin `n` osoittaa koon
+merkkijono (eli taulukon pituus). Tietotyypin `n:`-osan jälkeen oleva nolla on vartija
+arvo itse.
+
+```{zig}
+#| eval: true
+#| auto_main: true
+#| build_type: "run"
+// Printing the type of a string literal value:
+try stdout.print("{any}\n", .{@TypeOf("A literal value")});
+try stdout.flush();
+```
+
+
+Joten tällä tietotyypillä `*const [n:0]u8` tarkoitat käytännössä, että sinulla on joukko `u8`-arvoja
+pituus `n`, jossa taulukon pituutta `n` vastaavan indeksin elementti on
+numero nolla. Jos todella ajattelet tätä kuvausta, huomaat, että tämä on vain hieno tapa
+kuvaa C:ssä olevaa merkkijonoa, joka on nollapäätteinen tavujono. `NULL`-arvo C:ssä on numero
+nolla. Joten matriisi, joka päättyy nolla/nolla-arvoon C:ssä, on oleellisesti vartijapäätteinen matriisi Zigissä,
+jossa taulukon vartijaarvo on luku nolla.
+
+Siksi vartijapäätteinen matriisi Zigissä on vain tyyppi, joka sisältää sekä pituuden että sentinel-arvon
+itse objektityypin sisällä olevasta taulukosta. Joten, kun kyseessä on merkkijonon kirjainarvo Zigissä, se on vain osoitin nollapäätteiseen tavutaulukkoon (eli samankaltaiseen kuin C-merkkijono).
+Mutta Zigissä merkkijonon kirjainarvo sisältää myös merkkijonon pituuden ja myös sen tosiasian, että ne ovat "NULL terminated",
+itse arvon tietotyyppiin.
+
+
+
+#### Viipale
+
+Voit myös käyttää ja käyttää mielivaltaista tavujonoa, joka edustaa merkkijonoasi `u8`-arvojen osana.
+Suurin osa Zig-standardikirjaston funktioista vastaanottaa yleensä merkkijonoja syötteinä viipaleina
+`u8`-arvot (viipaleet esitettiin kohdassa @sec-arrays).
+
+Näin ollen näet paljon merkkijonoarvoja, joiden tietotyyppi on `[]u8` tai `[]const u8`, riippuen siitä, onko objekti
+jossa tämä merkkijono on tallennettu, on merkitty vakioksi `const`:llä tai muuttujaksi `var`. Nyt, koska
+merkkijono tässä tapauksessa tulkitaan viipaleeksi, tämä viipale ei välttämättä ole nollapääte,
+koska nyt sentinel-arvo ei ole pakollinen. Voit sisällyttää nolla-/nolla-arvon siivuun, jos haluat
+halua, mutta ei ole tarvetta tehdä sitä.
+
+```{zig}
+#| eval: true
+#| build_type: "run"
+#| auto_main: true
+// This is a string value being
+// interpreted as a slice.
+const str: []const u8 = "A string value";
+try stdout.print("{any}\n", .{@TypeOf(str)});
+try stdout.flush();
+```
+
+
+
+### Iterointi merkkijonon läpi
+
+Jos haluat nähdä todelliset tavut, jotka edustavat merkkijonoa Zigissä, voit käyttää
+`for`-silmukka iteroimaan merkkijonon jokaisen tavun läpi ja pyytämään Zigia tulostamaan jokainen tavu heksadesimaalilukuna
+arvo terminaaliin. Voit tehdä sen käyttämällä `print()`-käskyä `X`-muotoilumääritteen kanssa,
+kuten tavallisesti tekisit [`printf()`-funktiolla](https://cplusplus.com/reference/cstdio/printf/)[^printfs] C:ssä.
+
+[^printfs]: <https://cplusplus.com/reference/cstdio/printf/>
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const string_object = "This is an example";
+try stdout.print("Bytes that represents the string object: ", .{});
+for (string_object) |byte| {
+    try stdout.print("{X} ", .{byte});
+}
+try stdout.print("\n", .{});
+try stdout.flush();
+```
+
+
+
+### Tarkempi katsaus objektin tyyppiin
+
+Nyt voimme tarkastaa paremmin, minkä tyyppisiä objekteja Zig luo. Voit tarkistaa minkä tahansa objektin tyypin Zigissä käyttämällä
+`@TypeOf()`-toiminto. Jos tarkastelemme alla olevan `simple_array`-objektin tyyppiä, huomaat, että tämä objekti
+on 4 elementin joukko. Jokainen elementti on 32-bitin etumerkillinen kokonaisluku, joka vastaa tietotyyppiä `i32` Zigissä.
+Tämä on `[4]i32`-tyypin objekti.
+
+Mutta jos tarkastelemme tarkasti alla paljastetun merkkijonon arvon tyyppiä, huomaat, että tämä objekti on a
+vakioosoitin (siis `*const`-merkintä) 16 elementin (tai 16 tavun) taulukkoon. Jokainen elementti on a
+yksitavuinen (tarkemmin sanottuna etumerkitön 8-bittinen kokonaisluku - `u8`), siksi meillä on alla olevan tyypin `[16:0]u8` osa,
+ja voit myös nähdä, että tämä on nollapääteinen matriisi, koska tietotyypin `:`-merkin jälkeen on nolla.
+Toisin sanoen alla näkyvä merkkijonokirjainarvo on 16 tavua pitkä.
+
+Jos nyt luomme osoittimen `simple_array`-objektiin, saamme jatkuvan osoittimen 4 elementin taulukkoon (`*const [4]i32`),
+joka on hyvin samanlainen kuin merkkijonon literaaliarvon tyyppi. Tämä osoittaa, että merkkijonon kirjaimellinen arvo
+Zigissä on jo osoitin nollapäätteiseen tavutaulukkoon.
+
+Lisäksi, jos tarkastelemme `string_obj`-objektin tyyppiä, näet, että se on
+slice-objekti (siis tyypin `[]`-osa) vakioiden `u8`-arvojen sarjaksi (siis
+tyypin `const u8` osa).
+
+
+```{zig}
+#| build_type: "run"
+#| auto_main: false
+#| eval: true
+#| results: "hide"
+const std = @import("std");
+pub fn main() !void {
+    const simple_array = [_]i32{1, 2, 3, 4};
+    const string_obj: []const u8 = "A string object";
+    std.debug.print(
+        "Type 1: {}\n", .{@TypeOf(simple_array)}
+    );
+    std.debug.print(
+        "Type 2: {}\n", .{@TypeOf("A string literal")}
+    );
+    std.debug.print(
+        "Type 3: {}\n", .{@TypeOf(&simple_array)}
+    );
+    std.debug.print(
+        "Type 4: {}\n", .{@TypeOf(string_obj)}
+    );
+}
+```
+
+```
+Type 1: [4]i32
+Type 2: *const [16:0]u8
+Type 3: *const [4]i32
+Type 4: []const u8
+```
+
+
+
+### Tavu vs unicode-pisteet
+
+On tärkeää huomauttaa, että taulukon jokainen tavu ei välttämättä ole yksittäinen merkki.
+Tämä tosiasia johtuu yhden tavun ja yhden unicode-pisteen välisestä erosta.
+
+UTF-8-koodaus toimii antamalla numeron (jota kutsutaan unicode-pisteeksi) jokaiselle merkille.
+merkkijono. Esimerkiksi merkki "H" on tallennettu UTF-8:aan desimaalilukuna 72. Tämä tarkoittaa, että
+numero 72 on merkin "H" unicode-piste. Jokainen mahdollinen hahmo, joka voi esiintyä kohdassa a
+UTF-8-koodatulla merkkijonolla on oma unicode-pisteensä.
+
+Esimerkiksi latinalaista isoa kirjainta A ja viiva (Ⱥ) edustaa numero (tai unicode-piste)
+570. Tämä desimaaliluku (570) on kuitenkin suurempi kuin yhden tavun sisään tallennettu enimmäismäärä, joka
+on 255. Toisin sanoen, maksimi desimaaliluku, joka voidaan esittää yhdellä tavulla, on 255. Tästä syystä
+Unicode-piste 570 on itse asiassa tallennettu tietokoneen muistiin tavuina `C8 BA`.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const string_object = "Ⱥ";
+_ = try stdout.write(
+    "Bytes that represents the string object: "
+);
+for (string_object) |char| {
+    try stdout.print("{X} ", .{char});
+}
+try stdout.flush();
+```
+
+
+Tämä tarkoittaa, että tallentaaksemme merkin Ⱥ UTF-8-koodatussa merkkijonossa meidän on käytettävä kahta tavua yhdessä
+edustamaan lukua 570. Tästä syystä tavujen ja unicode-pisteiden välinen suhde ei aina ole
+1-1. Jokainen unicode-piste on yksi merkki merkkijonossa, mutta ei aina yksi tavu vastaa
+yhteen unicode-pisteeseen.
+
+Kaikki tämä tarkoittaa, että jos silmukat merkkijonon elementtien läpi Zigissä, silmukat merkkijonon läpi
+tavua, joka edustaa kyseistä merkkijonoa, ei merkkijonon merkkien kautta. Yllä olevassa Ⱥ-esimerkissä
+for-silmukka tarvitsi kaksi iteraatiota (yhden iteroinnin sijaan) tulostaakseen kaksi tavua, jotka edustavat tätä Ⱥ-kirjainta.
+
+Nyt kaikki englanninkieliset kirjaimet (tai ASCII-kirjaimet, jos haluat) voidaan esittää yhdellä tavulla UTF-8:ssa. Kuten a
+seurauksena, jos UTF-8-merkkijonosi sisältää vain englanninkielisiä kirjaimia (tai ASCII-kirjaimia), olet onnekas. Koska
+tavujen määrä on sama kuin merkkijonon merkkien määrä. Toisin sanoen tässä nimenomaisessa
+tilanteessa tavujen ja unicode-pisteiden välinen suhde on 1:1.
+
+Mutta toisaalta, jos merkkijonosi sisältää muun tyyppisiä kirjaimia…, saatat esimerkiksi työskennellä
+tekstidata, joka sisältää kiinalaisia, japanilaisia tai latinalaisia kirjaimia, sitten tavujen lukumäärän, joka tarvitaan esittämään
+UTF-8-merkkijonosi on todennäköisesti paljon suurempi kuin merkkijonon merkkimäärä.
+
+Jos sinun on iteroitava merkkijonon merkkejä sen tavujen sijasta, voit käyttää
+`std.unicode.Utf8View`-rakenne luo iteraattorin, joka toistuu merkkijonosi unicode-pisteiden läpi.
+
+Alla olevassa esimerkissä käymme läpi japanilaisia ​​merkkejä "アメリカ". Jokainen neljästä hahmosta
+tätä merkkijonoa edustaa kolme tavua. Mutta for-silmukka toistuu neljä kertaa, yksi iteraatio kullekin
+merkki/unicode-piste tässä merkkijonossa:
+
+```{zig}
+#| auto_main: true
+#| build_type: "lib"
+var utf8 = try std.unicode.Utf8View.init("アメリカ");
+var iterator = utf8.iterator();
+while (iterator.nextCodepointSlice()) |codepoint| {
+    try stdout.print(
+        "got codepoint {x}\n",
+        .{codepoint},
+    );
+}
+
+try stdout.flush();
+```
+
+```
+got codepoint e382a2
+got codepoint e383a1
+got codepoint e383aa
+got codepoint e382ab
+```
+
+
+### Hyödyllisiä funktioita merkkijonoille {#sec-strings-useful-funs}
+
+Tässä osiossa haluan vain kuvata nopeasti joitakin Zig Standard Libraryn toimintoja
+jotka ovat erittäin hyödyllisiä kielten kanssa työskennellessä. Merkittävin:
+
+- `std.mem.eql()`: vertailla, ovatko kaksi merkkijonoa yhtä suuret.
+- `std.mem.splitScalar()`: jakaa merkkijono joukoksi alimerkkijonoja, joille on annettu erotinarvo.
+- `std.mem.splitSequence()`: jakaa merkkijono joukoksi alimerkkijonoja, joissa on alimerkkijonoerotin.
+- `std.mem.startsWith()`: tarkistaa, alkaako merkkijono alimerkkijonolla.
+- `std.mem.endsWith()`: tarkistaa, päättyykö merkkijono alimerkkijonoon.
+- `std.mem.trim()`: poistaa tietyt arvot merkkijonon alusta ja lopusta.
+- `std.mem.concat()`: merkkijonojen ketjuttaminen yhteen.
+- `std.mem.count()`: laskea alimerkkijonon esiintymät merkkijonossa.
+- `std.mem.replace()`: korvaa alimerkkijonon esiintymät merkkijonossa.
+
+Huomaa, että kaikki nämä toiminnot tulevat `mem`-moduulista
+Zig Standard Library. Tämä moduuli sisältää useita toimintoja ja menetelmiä
+jotka ovat hyödyllisiä muistin ja tavujonojen kanssa yleensä.
+
+`eql()`-funktiota käytetään tarkistamaan, ovatko kaksi datalohkoa samanarvoisia vai eivät.
+Koska merkkijonot ovat vain mielivaltaisia ​​tavutaulukoita, voimme käyttää tätä toimintoa kahden merkkijonon vertaamiseen.
+Tämä funktio palauttaa loogisen arvon, joka osoittaa, ovatko kaksi merkkijonoa yhtä suuret
+tai ei. Tämän funktion ensimmäinen argumentti on viipaleiden elementtien tietotyyppi
+joita verrataan.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const name: []const u8 = "Pedro";
+try stdout.print(
+    "{any}\n", .{std.mem.eql(u8, name, "Pedro")}
+);
+try stdout.flush();
+```
+
+Toiminnot `splitScalar()` ja `splitSequence()` ovat hyödyllisiä jaettaessa
+merkkijono useiksi fragmenteiksi, kuten `split()`-menetelmä Python-merkkijonoista. Ero näiden kahden välillä
+menetelmä on se, että `splitScalar()` käyttää yhtä merkkiä erottimena
+jakaa merkkijono, kun taas `splitSequence()` käyttää merkkijonoa (eli alimerkkijonoa)
+erottimena. Näistä toiminnoista on käytännön esimerkki myöhemmin kirjassa.
+
+Toiminnot `startsWith()` ja `endsWith()` ovat melko yksinkertaisia. He
+palauttaa loogisen arvon, joka osoittaa, onko merkkijono (tai tarkemmin sanottuna, jos tietolohko)
+alkaa (`startsWith`) tai päättyy (`endsWith`) annettuun järjestykseen.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const name: []const u8 = "Pedro";
+try stdout.print(
+    "{any}\n", .{std.mem.startsWith(u8, name, "Pe")}
+);
+try stdout.flush();
+```
+
+`concat()`-funktio, kuten nimestä voi päätellä, ketjuttaa kaksi tai useampia merkkijonoja yhteen.
+Koska merkkijonojen ketjutusprosessiin kuuluu tarpeeksi tilan varaaminen
+sovittaa kaikki merkkijonot yhteen, tämä `concat()`-funktio vastaanottaa allokaattorin
+objekti syötteenä.
+
+```{zig}
+#| eval: false
+#| auto_main: true
+#| build_type: "ast"
+const str1 = "Hello";
+const str2 = " you!";
+const str3 = try std.mem.concat(
+    allocator, u8, &[_][]const u8{ str1, str2 }
+);
+try stdout.print("{s}\n", .{str3});
+try stdout.flush();
+```
+
+
+Kuten voit kuvitella, `replace()`-funktiota käytetään korvaamaan merkkijonon osamerkkijonot toisella alimerkkijonolla.
+Tämä toiminto toimii hyvin samalla tavalla kuin Python-merkkijonojen `replace()`-metodi. Siksi sinä
+anna alimerkkijono hakua varten ja joka kerta, kun `replace()`-toiminto löytää
+tämä alimerkkijono syötemerkkijonossa, se korvaa tämän alimerkkijonon "replacement substring"
+jonka annoit syötteeksi.
+
+Alla olevassa esimerkissä otamme syöttömerkkijonon "Hello" ja korvaamme kaikki esiintymät
+alimerkkijonosta "el" tämän syötemerkkijonon sisällä "34":llä ja tallentamalla tulokset
+`buffer`-objekti. Tämän seurauksena `replace()`-funktio palauttaa `usize`-arvon, joka
+osoittaa, kuinka monta vaihtoa suoritettiin.
+
+
+```{zig}
+#| auto_main: true
+#| build_type: "lib"
+const str1 = "Hello";
+var buffer: [5]u8 = undefined;
+const nrep = std.mem.replace(
+    u8, str1, "el", "34", buffer[0..]
+);
+try stdout.print("New string: {s}\n", .{buffer});
+try stdout.print("N of replacements: {d}\n", .{nrep});
+try stdout.flush();
+```
+
+```
+New string: H34lo
+N of replacements: 1
+```
+
+
+
+
+
+
+## Turvallisuus Zigissä
+
+Yleinen trendi nykyaikaisissa matalan tason ohjelmointikielissä on turvallisuus. Kuten nykymaailmamme
+tulee entistä enemmän yhteydessä teknologiaan ja tietokoneisiin,
+kaiken tämän tekniikan tuottamasta tiedosta tulee yksi tärkeimmistä
+(ja myös yksi vaarallisimmista) omaisuudestamme.
+
+Tämä on luultavasti tärkein syy siihen, miksi nykyaikaiset matalan tason ohjelmointikielet
+ovat kiinnittäneet suurta huomiota turvallisuuteen, erityisesti muistin turvallisuuteen, koska
+muistin korruptio on edelleen hakkereiden pääkohde.
+Tosiasia on, että meillä ei ole helppoa ratkaisua tähän ongelmaan.
+Toistaiseksi meillä on vain tekniikoita ja strategioita, jotka vähentävät näitä
+ongelmia.
+
+Kuten Richard Feldman selittää [viimeisimmässä GOTO-konferenssipuheessaan](https://www.youtube.com/watch?v=jIZpKpLCOiU&ab_channel=GOTOConferences)[^gotop]
+, emme ole vielä keksineet tapaa saavuttaa **true safety in technology**.
+Toisin sanoen emme ole löytäneet tapaa rakentaa ohjelmistoja, joita ei hyödynnetä
+100% varmuudella. Voimme vähentää huomattavasti ohjelmistojemme riskejä
+hyödyntää esimerkiksi varmistamalla muistin turvallisuus. Mutta tämä ei riitä
+saavuttaaksesi "true safety" alueen.
+
+Koska vaikka kirjoitat ohjelmasi "safe language"-tiedostoon, hakkerit voivat silti
+hyödyntää virheitä käyttöjärjestelmässä, jossa ohjelmasi on käynnissä (esim
+järjestelmässä, jossa koodisi on käynnissä, on "backdoor exploit", joka voi edelleen
+vaikuttaa koodiisi odottamattomilla tavoilla), tai ne voivat myös hyödyntää ominaisuuksia
+tietokoneesi arkkitehtuurista. Äskettäin löydetty hyväksikäyttö
+joka sisältää muistin mitätöinnin "memory tags"-ominaisuuden kautta
+ARM-siruissa oleva [@exploit1] on esimerkki.
+
+[^gotop]: <https://www.youtube.com/watch?v=jIZpKpLCOiU&ab_channel=GOTOConferences>
+
+Kysymys kuuluu: mitä Zig ja muut kielet ovat tehneet tämän ongelman lieventämiseksi?
+Jos otamme esimerkiksi Rustin, Rust on suurimmaksi osaksi[^rust-safe], muistisuoja
+kieltä pakottamalla kehittäjälle erityiset säännöt. Toisin sanoen tärkein ominaisuus
+of Rust, *borrow checker*, pakottaa sinut noudattamaan tiettyä logiikkaa kirjoittaessasi
+Rust-koodisi, ja Rust-kääntäjä valittaa aina, kun yrität päästä eroon tästä
+kuvio.
+
+[^rust-safe]: Itse asiassa suuri osa olemassa olevasta Rust-koodista on edelleen epävarma muistista, koska ne kommunikoivat ulkoisten kirjastojen kanssa FFI:n (*foreign function interface*) kautta, mikä poistaa lainaustarkistusominaisuudet käytöstä avainsanan `unsafe` kautta.
+
+
+Sitä vastoin Zig-kieli ei ole oletuksena muistiturvallinen kieli.
+Zigissä on joitain muistin turvaominaisuuksia, joita saat ilmaiseksi,
+erityisesti taulukoissa, viipaleissa ja osoitinobjekteissa. Mutta on muitakin työkaluja
+kielen tarjoamia, joita ei oletuksena käytetä.
+Toisin sanoen `zig`-kääntäjä ei velvoita sinua käyttämään tällaisia ​​työkaluja.
+
+Alla luetellut työkalut liittyvät muistin turvallisuuteen. Eli ne auttavat sinua saavuttamaan
+muistin turvallisuus zig-koodissasi:
+
+- `defer` antaa sinun pitää vapaat toiminnot fyysisesti lähellä allokaatioita. Tämä auttaa sinua välttämään muistivuotoja, "use after free" ja myös "double-free"-ongelmia. Lisäksi se pitää vapaat toiminnot loogisesti sidottuina nykyisen laajuuden loppuun, mikä vähentää huomattavasti objektin käyttöikään liittyviä henkisiä kustannuksia.
+- `errdefer` auttaa sinua varmistamaan, että ohjelmasi vapauttaa varatun muistin, vaikka tapahtuisi ajonaikainen virhe.
+- osoittimet ja objektit eivät ole nullable oletuksena. Tämä auttaa sinua välttämään muistiongelmia, joita saattaa syntyä nollaosoittimien viittauksen poistamisesta.
+- Zig tarjoaa joitain alkuperäisiä allokaattoreita (nimeltään "testing allocators"), jotka voivat havaita muistivuotoja ja kaksoisvapautuksia. Tämän tyyppisiä allokaattoreita käytetään laajalti yksikkötesteissä, joten ne muuttavat yksikkötestit aseeksi, jonka avulla voit havaita koodisi muistiongelmia.
+- Zigin taulukoiden ja osien pituudet on upotettu itse objektiin, mikä tekee `zig`-kääntäjästä erittäin tehokkaan "index out-of-range"-tyyppisten virheiden havaitsemisessa ja puskurin ylivuotojen välttämisessä.
+
+
+Huolimatta näistä Zigin tarjoamista muistin turvallisuusongelmiin liittyvistä ominaisuuksista, kieli
+on myös joitain sääntöjä, jotka auttavat sinua saavuttamaan toisenlaisen turvallisuuden, joka liittyy enemmän
+ohjelman logiikan turvallisuus. Nämä säännöt ovat:
+
+- osoittimet ja objektit eivät ole nullable oletuksena. Tämä eliminoi reunatapauksen, joka saattaa rikkoa ohjelman logiikan.
+- switch-lauseiden on käsiteltävä kaikki mahdolliset vaihtoehdot.
+- `zig`-kääntäjä pakottaa sinut käsittelemään kaikki mahdolliset virheet ohjelmassasi.
+
+
+## Zigin muut osat
+
+Olemme jo oppineet paljon Zigin syntaksista ja myös melko teknisiä
+yksityiskohtia siitä. Lyhyenä yhteenvetona:
+
+- Käsittelimme, miten funktiot kirjoitetaan Zigissä @sec-root-file- ja kohdissa @sec-main-file.
+- Miten luodaan uusia objekteja/tunnisteita kohdassa @sec-root-file ja erityisesti kohdassa @sec-assignments.
+- Miten merkkijonot toimivat Zigissä kohdassa @sec-zig-strings.
+- Miten käytetään taulukoita ja viipaleita kohdassa @sec-arrays.
+- Miten tuodaan toimintoja muista Zig-moduuleista kohdassa @sec-root-file.
+
+
+Toistaiseksi tämä tietomäärä riittää, jotta voimme jatkaa kirjan parissa.
+Myöhemmin seuraavissa luvuissa käsittelemme vielä muita
+Zigin syntaksin osia, jotka ovat yhtä tärkeitä. Esimerkiksi:
+
+
+- Miten olio-ohjelmointi voidaan tehdä Zigissä *struct declarations*:n kautta kohdassa @sec-structs-and-oop.
+- Ohjausvirran perussyntaksi kohdassa @sec-zig-control-flow.
+- Enumit kohdassa @sec-enum;
+- Osoittimet ja optionaalit kohdassa @sec-pointer;
+- Virheenkäsittely `try`- ja `catch`-avainsanoilla kohdassa @sec-error-handling;
+- Yksikkötestit kohdassa @sec-unittests;
+- Vektorit kohdassa @sec-vectors-simd;
+- Build-järjestelmä kohdassa @sec-build-system.

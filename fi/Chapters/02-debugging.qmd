@@ -1,0 +1,339 @@
+---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+translation:
+  source: Chapters/02-debugging.qmd
+  source_sha256: 37f5dc43fce99252ca3f2f8ee02bdebb52df75810cf14e2d3cf84bc9ff42076a
+  status: complete
+---
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+
+# Zig-sovellusten debuggaus
+
+Kyky debugata sovelluksia on välttämätön jokaiselle ohjelmoijalle, joka haluaa tehdä vakavaa ohjelmointia millä tahansa kielellä. Siksi tässä luvussa käsittelemme Zigillä kirjoitettujen sovellusten debuggaamiseen käytettäviä strategioita ja työkaluja.
+
+
+## Print-debuggaus
+
+Aloitamme klassisesta ja taistelussa testatusta *print-debuggaus*-strategiasta.
+Debuggauksen keskeinen etu on *näkyvyys*.
+*Print-lauseilla* näet helposti, mitä tuloksia ja objekteja sovelluksesi tuottaa.
+
+Tämä on *print-debuggauksen* ydin — käytät tulostuslauseita nähdäksesi ohjelmasi tuottamat arvot ja saadaksesi siten paljon paremman käsityksen ohjelmasi käyttäytymisestä.
+
+Monet ohjelmoijat turvautuvat usein Zigin tulostusfunktioihin, kuten `stdout.print()`- tai `std.debug.print()`-funktioihin, saadakseen paremman käsityksen ohjelmistaan.
+Tämä on tunnettu ja vanha strategia, joka on hyvin yksinkertainen ja tehokas, ja ohjelmointiyhteisössä se tunnetaan paremmin nimellä *print-debuggaus*.
+Zigissä voit tulostaa tietoa järjestelmäsi `stdout`- tai `stderr`-virtoihin.
+
+Aloitetaan `stdout`-virrasta. Jotta voit tulostaa jotain `stdout`-virtaan, tarvitset pääsyn "kirjoitusobjektiin", joka kirjoittaa `stdout`-virtaan. Ensin tarvitset *tiedostokuvaaja*-objektin, joka kuvaa `stdout`-virtaa.
+Saat sen kutsumalla Zig Standard Libraryn `std.Io.File`-moduulin `stdout()`-metodia.
+Tämän jälkeen saat "kirjoitusobjektin" kutsumalla `writer()`-metodia *tiedostokuvaaja*-objektista.
+
+Tämän *kirjoitusobjektin* `print()`-metodi on "tulostusformaattori"-tyyppinen funktio.
+Toisin sanoen tämä metodi toimii täsmälleen kuten C:n `printf()`-funktio
+tai Rustin `println!()`-makro.
+Funktion ensimmäisessä argumentissa määrittelet mallimerkkijonon, ja
+toisessa argumentissa annat listan arvoista (tai objekteista), jotka haluat lisätä
+malliviestiisi.
+
+Ihannetapauksessa ensimmäisen argumentin mallimerkkijonon pitäisi sisältää formaattimääreitä.
+Jokainen formaattimääre yhdistetään toisessa argumentissa annettuun arvoon (tai objektiin).
+Jos siis annoit toisessa argumentissa viisi eri objektia, mallimerkkijonon
+pitäisi sisältää viisi formaattimäärettä, yksi kullekin annetulle objektille.
+
+Jokainen formaattimääre esitetään yhdellä kirjaimella, ja
+annat sen aaltosulkeiden sisällä. Jos haluat muotoilla objektisi merkkijonon määreellä (`s`), voit lisätä mallimerkkijonoon tekstin `{s}`.
+Tässä on nopea lista yleisimmistä formaattimääreistä:
+
+- `d`: kokonaislukujen ja liukulukujen tulostamiseen.
+- `c`: merkkien tulostamiseen.
+- `s`: merkkijonojen tulostamiseen.
+- `p`: muistiosoitteiden tulostamiseen.
+- `x`: heksadesimaaliarvojen tulostamiseen.
+- `any`: käytä mitä tahansa yhteensopivaa formaattimäärettä (eli se valitsee formaattimääreen automaattisesti puolestasi).
+
+Alla oleva koesimerkki näyttää tämän `print()`-metodin käytön
+`d`-formaattimääreen kanssa.
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+const std = @import("std");
+fn add(x: u8, y: u8) u8 {
+    return x + y;
+}
+
+pub fn main(init: std.process.Init) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    const result = add(34, 16);
+    try stdout.print("Result: {d}", .{result});
+    try stdout.flush();
+}
+```
+
+On tärkeää korostaa, että `stdout.print()`-metodi, kuten odotatkin,
+tulostaa mallimerkkijonosi järjestelmäsi `stdout`-virtaan.
+Voit kuitenkin tulostaa mallimerkkijonosi myös `stderr`-virtaan,
+jos haluat. Sinun tarvitsee vain korvata `stdout.print()`-kutsu
+funktiolla `std.debug.print()`. Näin:
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+const std = @import("std");
+fn add(x: u8, y: u8) u8 {
+    return x + y;
+}
+
+pub fn main() !void {
+    const result = add(34, 16);
+    std.debug.print("Result: {d}\n", .{result});
+}
+```
+
+
+Voit saavuttaa täsmälleen saman tuloksen myös hankkimalla tiedostokuvaaja-objektin `stderr`-virtaan,
+luomalla *kirjoitusobjektin* `stderr`-virtaan ja käyttämällä tämän
+*kirjoitusobjektin* `print()`-metodia, kuten alla olevassa esimerkissä:
+
+```{zig}
+#| eval: false
+const std = @import("std");
+pub fn main(init: std.process.Init) !void {
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writer(init.io, &stderr_buffer);
+    const stderr = &stderr_writer.interface;
+    // some more lines ...
+    try stderr.print("Result: {d}", .{result});
+}
+```
+
+
+
+## Debuggaus debuggerien avulla
+
+Vaikka *print-debuggaus* on pätevä ja hyvin hyödyllinen strategia,
+useimmat ohjelmoijat suosivat debuggerin käyttöä ohjelmien debuggaamiseen.
+Koska Zig on matalan tason kieli, voit käyttää debuggerina joko GDB:tä (GNU Debugger)
+tai LLDB:tä (LLVM Project Debugger).
+
+Molemmat debuggerit toimivat Zig-koodin kanssa, ja valinta on makuasia.
+Valitset haluamasi debuggerin ja työskentelet sen kanssa.
+Tässä kirjassa käytän esimerkeissäni LLDB:tä.
+
+
+### Käännä lähdekoodisi debug-tilassa {#sec-compile-debug-mode}
+
+Jotta voit debugata ohjelmaasi debuggerin avulla, sinun on käännettävä
+lähdekoodisi `Debug`-tilassa. Kun käänät lähdekoodisi muissa tiloissa (kuten `Release`), kääntäjä yleensä
+poistaa joitakin olennaisia tietoja, joita debuggeri käyttää
+ohjelmasi lukemiseen ja seuraamiseen, kuten PDB-tiedostoja (*Program Database*).
+
+Kääntämällä lähdekoodisi `Debug`-tilassa varmistat, että debuggeri
+löytää ohjelmastasi tarvittavat tiedot debuggausta varten.
+Oletuksena kääntäjä käyttää `Debug`-tilaa kääntäessään koodiasi.
+Kun siis käännät ohjelmasi `build-exe`-komennolla (jota käsiteltiin kohdassa @sec-compile-code), jos et määritä
+eksplisiittistä tilaa `-O`-komentoriviparametrilla[^oargument],
+kääntäjä kääntää koodisi `Debug`-tilassa.
+
+[^oargument]: Katso <https://ziglang.org/documentation/master/#Debug>.
+
+
+### Debugataan ohjelma
+
+Esimerkkinä käytetään LLDB:tä seuraavan Zig-koodin
+läpikäymiseen ja tutkimiseen:
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+const std = @import("std");
+fn add_and_increment(a: u8, b: u8) u8 {
+    const sum = a + b;
+    const incremented = sum + 1;
+    return incremented;
+}
+
+pub fn main(init: std.process.Init) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    var n = add_and_increment(2, 3);
+    n = add_and_increment(n, n);
+    try stdout.print("Result: {d}!\n", .{n});
+    try stdout.flush();
+}
+```
+
+Tässä ohjelmassa ei ole mitään vikaa. Mutta se on
+hyvä lähtökohta meille. Ensin meidän on käännettävä
+tämä ohjelma `zig build-exe`-komennolla.
+Tässä esimerkissä oletetaan, että olen kääntänyt yllä olevan
+Zig-koodin binääritiedostoksi nimeltä `add_program`.
+
+```bash
+zig build-exe add_program.zig
+```
+
+Nyt voimme käynnistää LLDB:n ohjelmalla `add_program`, näin:
+
+```bash
+lldb add_program
+```
+
+Tästä eteenpäin LLDB on käynnissä, ja tiedät, että suoritan
+LLDB-komentoja, kun näet etuliitteen `(lldb)`.
+Jos jokin on etuliitteellä `(lldb)`, tiedät
+sen olevan LLDB-komento.
+
+Ensimmäiseksi asetan katkaisukohdan
+funktioon `main()` suorittamalla komennon `b main`.
+Tämän jälkeen käynnistän ohjelman suorituksen
+komennolla `run`.
+Alla olevasta tulosteesta näet, että suoritus
+pysähtyi funktion `main()` ensimmäiselle riville, kuten odotimme.
+
+```bash
+(lldb) b main
+Breakpoint 1: where = debugging`debug1.main + 22
+    at debug1.zig:11:30, address = 0x00000000010341a6
+(lldb) run
+Process 8654 launched: 'add_program' (x86_64)
+Process 8654 stopped
+* thread #1, name = 'add_program',
+    stop reason = breakpoint 1.1 frame #0: 0x10341a6
+    add_program`debug1.main at add_program.zig:11:30
+   8   	}
+   9
+   10  	pub fn main() !void {
+-> 11  	    var n = add_and_increment(2, 3);
+   12  	    n = add_and_increment(n, n);
+   13  	    try stdout.print("Result: {d}!\n", .{n});
+   14  	}
+```
+
+Voin alkaa navigoida koodissa ja tarkistaa syntyviä objekteja.
+Jos et ole tuttu LLDB:ssä käytettävissä olevien komentojen kanssa, suosittelen lukemaan projektin virallisen dokumentaation[^lldb].
+Voit myös etsiä cheat sheet -muistilistoja, jotka kuvaavat nopeasti kaikki
+käytettävissä olevat komennot[^lldb-quick-list].
+
+[^lldb]: <https://lldb.llvm.org/>
+[^lldb-quick-list]: <https://gist.github.com/ryanchang/a2f738f0c3cc6fbd71fa>.
+
+Olemme tällä hetkellä funktion `main()` ensimmäisellä rivillä. Tällä rivillä luomme
+objektin `n` suorittamalla funktion `add_and_increment()`.
+Suorittaaksemme nykyisen koodirivin ja siirtyäksemme seuraavalle riville voimme
+ajaa LLDB-komennon `n`. Suoritetaan tämä komento.
+
+Kun olemme suorittaneet tämän rivin, voimme myös tarkastella objektin `n` sisällä olevaa arvoa
+käyttämällä LLDB-komentoa `p`. Tämän komennon syntaksi on `p <objektin-nimi>`.
+
+Jos katsomme objektin `n` sisältämää arvoa (`p n`),
+huomaamme, että se sisältää heksadesimaaliarvon `0x06`, joka
+on desimaaliluku 6. Näemme myös, että tämän arvon tyyppi on `unsigned char`,
+eli etumerkitön 8-bittinen kokonaisluku.
+Olemme jo käsitelleet kohdassa @sec-zig-strings, että Zigin `u8`-kokonaisluvut vastaavat
+C:n `unsigned char` -tietotyyppiä.
+
+
+
+```bash
+(lldb) n
+Process 4798 stopped
+* thread #1, name = 'debugging',
+    stop reason = step over frame #0: 0x10341ae
+    debugging`debug1.main at debug1.zig:12:26
+   9
+   10  	pub fn main() !void {
+   11  	    var n = add_and_increment(2, 3);
+-> 12  	    n = add_and_increment(n, n);
+   13  	    try stdout.print("Result: {d}!\n", .{n});
+   14  	}
+(lldb) p n
+(unsigned char) $1 = '\x06'
+```
+
+Seuraavalla koodirivillä suoritamme funktion `add_and_increment()` uudelleen.
+Miksi emme astuisi funktion sisään? Tehdäänkö niin? Voimme tehdä sen suorittamalla LLDB-komennon `s`.
+Alla olevasta esimerkistä näet, että tämän komennon suorittamisen jälkeen olemme siirtyneet
+funktion `add_and_increment()` kontekstiin.
+
+Huomaa myös alla olevasta esimerkistä, että olen kävellyt vielä kaksi riviä funktion rungossa, ja
+sen jälkeen suoritan LLDB-komennon `frame variable` nähdäkseni kerralla arvot, jotka on tallennettu
+kunkin nykyisessä laajuudessa luodun muuttujan sisään.
+
+Alla olevasta tulosteesta näet, että objekti `sum` sisältää arvon `\f`,
+joka edustaa *form feed* -merkkiä. Tämä merkki ASCII-taulukossa
+vastaa heksadesimaaliarvoa `0x0C` eli desimaalilukua 12.
+Eli lausekkeen `a + b` tulos rivillä 5
+oli luku 12.
+
+```bash
+(lldb) s
+Process 4798 stopped
+* thread #1, name = 'debugging',
+    stop reason = step in frame #0: 0x10342de
+    debugging`debug1.add_and_increment(a='\x02', b='\x03')
+    at debug1.zig:4:39
+-> 4   	fn add_and_increment(a: u8, b: u8) u8 {
+   5   	    const sum = a + b;
+   6   	    const incremented = sum + 1;
+   7   	    return incremented;
+(lldb) n
+(lldb) n
+(lldb) frame variable
+(unsigned char) a = '\x06'
+(unsigned char) b = '\x06'
+(unsigned char) sum = '\f'
+(unsigned char) incremented = '\x06'
+```
+
+
+
+## Objektien tietotyypin tutkiminen
+
+Koska Zig on vahvasti tyypitetty kieli, objekteihisi liittyvät tietotyypit
+ovat ohjelmallesi erittäin tärkeitä. Objekteihisi liittyvien tietotyyppien debuggaaminen
+voi siis olla tärkeää ohjelmasi bugien ja virheiden ymmärtämiseksi.
+
+Kun kävelet ohjelmasi läpi debuggerilla, voit tarkastella objektiesi tyyppejä
+tulostamalla ne konsoliin LLDB-komennolla `p`.
+Sinulla on kuitenkin myös kieleen sisäänrakennettuja vaihtoehtoja objektiesi tietotyyppien
+tarkasteluun.
+
+Zigissä voit hakea objektin tietotyypin sisäänrakennetulla funktiolla
+`@TypeOf()`. Käytä tätä funktiota objektin päällä, ja saat käyttöösi
+objektin tietotyypin.
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+const std = @import("std");
+const expect = std.testing.expect;
+pub fn main(init: std.process.Init) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    const number: i32 = 5;
+    try expect(@TypeOf(number) == i32);
+    try stdout.print("{any}\n", .{@TypeOf(number)});
+    try stdout.flush();
+}
+```
+
+Tämä funktio on samanlainen kuin Pythonin sisäänrakennettu `type()`-funktio
+tai Javascriptin `typeof`-operaattori.

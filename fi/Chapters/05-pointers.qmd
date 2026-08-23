@@ -1,0 +1,520 @@
+---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+translation:
+  source: Chapters/05-pointers.qmd
+  source_sha256: e7d12ba5206cdfaeb6b32c2286f74725248df0d1c6916132260e23347566a94b
+  status: complete
+---
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+# Osoittimet ja optionaalit {#sec-pointer}
+
+Seuraavassa projektissamme rakennamme HTTP-palvelimen alusta alkaen.
+Jotta voimme tehdä sen, meidän täytyy oppia lisää osoittimista ja siitä, miten ne toimivat Zigissä.
+Osoittimet Zigissä muistuttavat C:n osoittimia. Zigissä niihin liittyy kuitenkin joitakin lisäetuja.
+
+Osoitin on olio, joka sisältää muistiosoitteen. Tämä muistiosoite on osoite, johon
+tietty arvo on tallennettu muistiin. Se voi olla mikä tahansa arvo. Useimmiten
+se on arvo, joka tulee toisesta ohjelmassamme olevasta oliosta (tai muuttujasta).
+
+Alla olevassa esimerkissä luon kaksi oliota (`number` ja `pointer`).
+`pointer`-olio sisältää muistiosoitteen, johon `number`-olion arvo
+(luku 5) on tallennettu. Siinä on osoitin lyhyesti sanottuna. Se on muistiosoite,
+joka osoittaa tiettyyn olemassa olevaan arvoon muistissa. Voit myös sanoa,
+että `pointer`-olio osoittaa muistiosoitteeseen, johon `number`-olio on
+tallennettu.
+
+
+```{zig}
+#| build_type: "run"
+#| auto_main: true
+const number: u8 = 5;
+const pointer = &number;
+_ = pointer;
+```
+
+Luomme osoitinolion Zigissä käyttämällä `&`-operaattoria. Kun laitat tämän operaattorin
+olemassa olevan olion nimen eteen, saat tuloksena kyseisen olion muistiosoitteen.
+Kun tallennat tämän muistiosoitteen uuteen olioon, tästä uudesta oliosta tulee osoitinolio.
+Koska se tallentaa muistiosoitteen.
+
+Ihmiset käyttävät osoittimia useimmiten vaihtoehtoisena tapana käyttää tiettyä arvoa.
+Esimerkiksi voin käyttää `pointer`-oliota käyttääkseni `number`-olion tallentamaa arvoa.
+Tätä operaatiota, jossa käytetään arvoa, johon osoitin "osoittaa", kutsutaan yleensä
+*osoittimen dereferoinniksi*.
+Voimme dereferoida osoittimen Zigissä käyttämällä osoitinolion `*`-metodia. Kuten alla olevassa esimerkissä,
+jossa otamme luvun 5, johon `pointer`-olio osoittaa,
+ja kaksinkertaistamme sen.
+
+```{zig}
+#| build_type: "run"
+#| auto_main: true
+const number: u8 = 5;
+const pointer = &number;
+const doubled = 2 * pointer.*;
+std.debug.print("{d}\n", .{doubled});
+```
+
+
+Tämä syntaksi osoittimen dereferointiin on kätevä. Koska voimme helposti ketjuttaa sen
+osoittimen osoittaman arvon metodien kanssa. Voimme käyttää esimerkkinä `User`-structia, jonka
+olemme luoneet kohdassa @sec-structs-and-oop. Jos palaat kyseiseen osioon,
+näet, että tällä structilla on metodi nimeltä `print_name()`.
+
+Eli esimerkiksi jos meillä on käyttäjäolio ja osoitin, joka osoittaa tähän käyttäjäolioon,
+voimme käyttää osoitinta käyttääksemme tätä käyttäjäoliota ja samalla kutsua metodia `print_name()`
+ketjuttamalla dereferointimetodin (`*`) metodin `print_name()` kanssa. Kuten alla olevassa
+esimerkissä:
+
+
+```{zig}
+#| eval: false
+const u = User.init(1, "pedro", "email@gmail.com");
+const pointer = &u;
+try pointer.*.print_name();
+```
+
+```
+pedro
+```
+
+Voimme myös käyttää osoittimia muuttamaan olion arvoa tehokkaasti.
+Esimerkiksi voisin käyttää `pointer`-oliota asettaakseni
+olion `number` arvoksi 6, kuten alla olevassa esimerkissä.
+
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+var number: u8 = 5;
+const pointer = &number;
+pointer.* = 6;
+try stdout.print("{d}\n", .{number});
+try stdout.flush();
+```
+
+
+Kuten aiemmin mainitsin, ihmiset käyttävät osoittimia vaihtoehtoisena tapana käyttää tiettyä arvoa.
+Ja erityisesti silloin, kun he eivät halua "siirtää" näitä arvoja paikasta toiseen. On tilanteita, joissa
+haluat käyttää tiettyä arvoa eri laajuudessa (eli eri paikassa) koodissasi,
+mutta et halua "siirtää" tätä arvoa tähän uuteen laajuuteen (tai paikkaan), jossa olet.
+
+Tämä on tärkeää erityisesti, jos arvo on kooltaan suuri. Koska silloin
+tämän arvon siirtäminen on kallis operaatio.
+Tietokoneen täytyy käyttää huomattavasti aikaa
+kopioimaan tämä arvo uuteen paikkaan.
+
+Siksi monet ohjelmoijat välttävät mieluummin tämän raskaan kopioimisoperaation
+käyttämällä arvoa osoittimien kautta.
+Puhumme tästä "siirtämisoperaatiosta" lisää seuraavissa osioissa.
+Toistaiseksi pidä mielessä, että tämän "siirtämisoperaation" välttäminen on
+yksi tärkeimmistä syistä, miksi osoittimia käytetään ohjelmointikielissä.
+
+
+
+
+
+## Vakio-oliot vs. muuttuva-oliot {#sec-pointer-var}
+
+Voit olla osoitin, joka osoittaa vakio-olioon, tai osoitin, joka osoittaa muuttuvaan olioon.
+Mutta riippumatta siitä, mikä osoitin on, osoittimen **täytyy aina kunnioittaa olion ominaisuuksia, johon se osoittaa**.
+Seurauksena, jos osoitin osoittaa vakio-olioon, et voi käyttää tätä osoitinta
+muuttaaksesi arvoa, johon se osoittaa. Koska se osoittaa vakioon arvoon. Kuten käsittelimme kohdassa @sec-assignments, et voi
+muuttaa vakiota arvoa.
+
+Esimerkiksi jos minulla on `number`-olio, joka on vakio, en voi suorittaa
+alla olevaa lauseketta, jossa yritän muuttaa `number`-olion arvoksi 6
+`pointer`-olion kautta. Kuten alla näytetään, kun yrität tehdä jotain
+tällaista, saat käännösaikaisen virheen:
+
+```{zig}
+#| eval: false
+const number = 5;
+const pointer = &number;
+pointer.* = 6;
+```
+
+```
+p.zig:6:12: error: cannot assign to constant
+    pointer.* = 6;
+```
+
+Jos muutan `number`-olion muuttuvaksi olioksi lisäämällä `var`-avainsanan,
+voin onnistuneesti muuttaa tämän olion arvoa osoittimen kautta, kuten alla näytetään:
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+var number: u8 = 5;
+const pointer = &number;
+pointer.* = 6;
+try stdout.print("{d}\n", .{number});
+try stdout.flush();
+```
+
+Näet tämän suhteen "vakio vs. muuttuva" osoitinolion datatyypistä.
+Toisin sanoen osoitinolion datatyyppi antaa jo
+vihjeitä siitä, onko arvo, johon se osoittaa, vakio vai ei.
+
+Kun osoitinolio osoittaa vakioon arvoon, sillä on datatyyppi `*const T`,
+mikä tarkoittaa "osoitin vakioon arvoon tyypin `T` kanssa".
+Sitä vastoin, jos osoitin osoittaa muuttuvaan arvoon, osoittimen tyyppi on yleensä `*T`, mikä on
+yksinkertaisesti "osoitin arvoon tyypin `T` kanssa".
+Siksi aina kun näet osoitinolion, jonka datatyyppi on muodossa `*const T`,
+tiedät, ettet voi käyttää tätä osoitinta muuttaaksesi arvoa, johon se osoittaa.
+Koska tämä osoitin osoittaa vakioon arvoon tyypin `T` kanssa.
+
+
+Olemme puhuneet osoittimen osoittaman arvon olevan vakio tai ei,
+ja siitä seuraavista seurauksista. Mutta entä itse osoitinolio? Eli mitä tapahtuu,
+jos itse osoitinolio on vakio tai ei? Mieti sitä.
+Voimme olla vakio-osoitin, joka osoittaa vakioon arvoon.
+Mutta voimme myös olla muuttuva osoitin, joka osoittaa vakioon arvoon. Ja päinvastoin.
+
+Tähän asti `pointer`-olio oli aina vakio,
+mutta mitä tämä tarkoittaa meille? Mikä on seuraus siitä, että
+`pointer`-olio on vakio? Seuraus on, että
+emme voi muuttaa osoitinoliota, koska se on vakio. Voimme käyttää
+osoitinoliota monin tavoin, mutta emme voi muuttaa
+muistiosoitetta, joka on osoitinolion sisällä.
+
+Jos kuitenkin merkitsemme `pointer`-olion muuttuvaksi olioksi,
+voimme muuttaa `pointer`-olion osoittamaa muistiosoitetta.
+Alla oleva esimerkki osoittaa tämän. Huomaa, että `pointer`-olion osoittama olio
+vaihtuu `c1`:stä `c2`:een.
+
+```{zig}
+#| eval: false
+const c1: u8 = 5;
+const c2: u8 = 6;
+var pointer = &c1;
+try stdout.print("{d}\n", .{pointer.*});
+pointer = &c2;
+try stdout.print("{d}\n", .{pointer.*});
+try stdout.flush();
+```
+
+```
+5
+6
+```
+
+Näin asettamalla `pointer`-olion `var`- tai `const`-olioksi
+määrität, voiko tämän osoitinolion sisältämä muistiosoite muuttua vai ei
+ohjelmassasi. Toisaalta voit muuttaa osoittimen osoittamaa arvoa,
+jos ja vain jos tämä arvo on tallennettu muuttuvaan olioon. Jos tämä arvo
+on vakio-oliossa, et voi muuttaa tätä arvoa osoittimen kautta.
+
+
+## Osoitintyypit
+
+Zigissä on kaksi osoitintyyppiä [@zigdocs]:
+
+- yhden kohteen osoitin (`*`);
+- monen kohteen osoitin (`[*]`);
+
+
+Yhden kohteen osoitinoliot ovat olioita, joiden datatyypit ovat muodossa `*T`.
+Eli esimerkiksi jos oliolla on datatyyppi `*u32`, se tarkoittaa, että
+tämä olio sisältää yhden kohteen osoittimen, joka osoittaa etumerkittömään 32-bittiseen kokonaislukuarvoon.
+Toisena esimerkkinä, jos oliolla on tyyppi `*User`, se sisältää
+yhden kohteen osoittimen `User`-arvoon.
+
+Sitä vastoin monen kohteen osoittimet ovat olioita, joiden datatyypit ovat muodossa `[*]T`.
+Huomaa, että tähtisymboli (`*`) on nyt hakasulkeiden (`[]`) sisällä. Jos tähtisymboli
+on hakasulkeiden sisällä, tiedät, että tämä olio on monen kohteen osoitin.
+
+Kun käytät `&`-operaattoria olion päällä, saat aina yhden kohteen osoittimen.
+Monen kohteen osoittimet ovat enemmän kielen "sisäinen tyyppi", läheisemmin
+yhteydessä viipaleisiin. Joten kun luot tarkoituksella osoittimen `&`-operaattorilla,
+saat aina tuloksena yhden kohteen osoittimen.
+
+
+
+## Osoitinaritmetiikka
+
+Osoitinaritmetiikka on käytettävissä Zigissä, ja se toimii samalla tavalla kuin C:ssä.
+Kun sinulla on osoitin, joka osoittaa taulukkoon, osoitin osoittaa yleensä
+taulukon ensimmäiseen elementtiin, ja voit käyttää osoitinaritmetiikkaa
+edetäksesi tämän osoittimen avulla ja käyttääksesi taulukon muita elementtejä.
+
+
+Huomaa alla olevassa esimerkissä, että aluksi `ptr`-olio osoitti
+taulukon `ar` ensimmäiseen elementtiin. Mutta sitten aloin kävellä taulukon läpi edetessäni
+osoitinta yksinkertaisella osoitinaritmetiikalla.
+
+```{zig}
+#| eval: true
+#| auto_main: true
+#| build_type: "run"
+#| results: "hide"
+const ar = [_]i32{ 1, 2, 3, 4 };
+var ptr: [*]const i32 = &ar;
+try stdout.print("{d}\n", .{ptr[0]});
+ptr += 1;
+try stdout.print("{d}\n", .{ptr[0]});
+ptr += 1;
+try stdout.print("{d}\n", .{ptr[0]});
+try stdout.flush();
+```
+
+```
+1
+2
+3
+```
+
+Vaikka voit luoda osoittimen taulukkoon näin ja
+kävellä taulukon läpi osoitinaritmetiikan avulla,
+Zigissä suosimme viipaleita, jotka esiteltiin kohdassa @sec-arrays.
+
+Pohjimmiltaan viipaleet ovat jo osoittimia,
+ja niihin liittyy myös `len`-ominaisuus, joka kertoo,
+kuinka monta elementtiä viipaleessa on. Tämä on hyvä, koska `zig`-kääntäjä
+voi käyttää sitä tarkistaakseen mahdolliset puskurin ylivuodot ja muut vastaavat ongelmat.
+
+Et myöskään tarvitse osoitinaritmetiikkaa kävelläksesi viipaleen elementtien läpi.
+Voit yksinkertaisesti käyttää `slice[index]`-syntaksia käyttääksesi suoraan
+mitä tahansa haluamaasi elementtiä viipaleessa.
+Kuten mainitsin kohdassa @sec-arrays, voit saada viipaleen taulukosta käyttämällä
+aluevalitsinta hakasulkeiden sisällä. Alla olevassa esimerkissä luon
+viipaleen (`sl`), joka kattaa koko `ar`-taulukon. Voin käyttää mitä tahansa
+`ar`-taulukon elementtiä tästä viipaleesta, ja itse viipale on pohjimmiltaan osoitin.
+
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const ar = [_]i32{1,2,3,4};
+const sl = ar[0..ar.len];
+_ = sl;
+```
+
+
+## Optiot ja optionaaliset osoittimet
+
+Puhutaan optioista ja siitä, miten ne liittyvät osoittimiin Zigissä.
+Oletuksena oliot Zigissä ovat **ei-nullattavia**. Tämä tarkoittaa, että Zigissä
+voit turvallisesti olettaa, että mikään olio lähdekoodissasi ei ole null.
+
+Tämä on Zigin tehokas ominaisuus verrattuna kehittäjäkokemukseen C:ssä.
+Koska C:ssä mikä tahansa olio voi olla null milloin tahansa, ja seurauksena C:n osoitin
+voi osoittaa null-arvoon. Tämä on yleinen määrittelemättömän käyttäytymisen lähde C:ssä.
+Kun ohjelmoijat työskentelevät osoittimien kanssa C:ssä, heidän täytyy jatkuvasti tarkistaa,
+osoittavatko heidän osoittimensa null-arvoihin vai eivät.
+
+Sitä vastoin kun työskentelet Zigissä, jos jostain syystä Zig-koodisi tuottaa null-arvon jossain, ja tämä null-
+arvo päätyy ei-nullattavaan olioon, Zig-ohjelmasi nostaa aina
+ajonaikaisen virheen. Ota alla oleva ohjelma esimerkkinä.
+`zig`-kääntäjä näkee `null`-arvon käännösaikana ja
+nostaa seurauksena käännösaikaisen virheen. Mutta jos `null`-arvo syntyy
+ajonaikana, Zig-ohjelma nostaa myös ajonaikaisen virheen viestillä
+"attempt to use null value".
+
+```{zig}
+#| eval: false
+var number: u8 = 5;
+number = null;
+```
+```
+p5.zig:5:14: error: expected type 'u8',
+        found '@TypeOf(null)'
+    number = null;
+             ^~~~
+```
+
+
+Et saa tällaista turvallisuutta C:ssä.
+C:ssä et saa varoituksia tai virheitä null-arvojen tuottamisesta ohjelmassasi.
+Jos jostain syystä koodisi tuottaa null-arvon C:ssä, useimmiten päädyt segmentation fault -virheeseen
+tuloksena, mikä voi tarkoittaa monia asioita.
+Siksi ohjelmoijien täytyy jatkuvasti tarkistaa null-arvoja C:ssä.
+
+Osoittimet Zigissä ovat myös oletuksena **ei-nullattavia**. Tämä on toinen upea
+ominaisuus Zigissä. Voit siis turvallisesti olettaa, että mikä tahansa luomasi osoitin
+Zig-koodissasi osoittaa ei-null-arvoon.
+Siksi sinulla ei ole tätä raskasta työtä tarkistaa, osoittavatko Zigissä luomasi osoittimet
+null-arvoon.
+
+
+### Mitä optiot ovat?
+
+Hyvä, tiedämme nyt, että kaikki oliot ovat oletuksena ei-nullattavia Zigissä.
+Mutta entä jos meidän täytyy käyttää oliota, joka saattaa saada null-arvon?
+Tässä kohtaa optiot tulevat kuvaan.
+
+Optio-olio Zigissä muistuttaa melko paljon [`std::optional`-oliota C++:ssa](https://en.cppreference.com/w/cpp/utility/optional.html).
+Se on olio, joka voi sisältää joko arvon tai ei mitään (eli olio voi olla null).
+Merkitsemme olion Zig-koodissamme "optioksi" käyttämällä `?`-operaattoria. Kun laitat
+tämän `?`-operaattorin suoraan olion datatyypin eteen, muutat
+tämän datatyypin optiodatyypiksi, ja oliosta tulee optio-olio.
+
+Ota alla oleva katkelma esimerkkinä. Luomme uuden muuttujaolion
+nimeltä `num`. Tällä oliolla on datatyyppi `?i32`, mikä tarkoittaa, että
+tämä olio sisältää joko etumerkitty 32-bittinen kokonaisluku (`i32`) tai null-arvon.
+Molemmat vaihtoehdot ovat kelvollisia arvoja `num`-oliolle.
+Siksi voin itse asiassa muuttaa tämän olion arvoksi null, eikä
+`zig`-kääntäjä nosta virheitä, kuten alla näytetään:
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+var num: ?i32 = 5;
+num = null;
+```
+
+### Optionaaliset osoittimet
+
+Voit myös merkitä osoitinolion optionaaliseksi osoittimeksi, mikä tarkoittaa, että
+tämä olio sisältää joko null-arvon tai osoittimen, joka osoittaa arvoon.
+Kun merkitset osoittimen optionaaliseksi, osoitinolion datatyypistä tulee
+`?*const T` tai `?*T`, riippuen siitä, onko osoittimen osoittama arvo
+vakio vai ei. `?` tunnistaa olion optionaaliseksi, kun taas
+`*` tunnistaa sen osoitinolioksi.
+
+Alla olevassa esimerkissä luomme muuttujaolion nimeltä `num` ja
+optionaalisen osoitinolion nimeltä `ptr`. Huomaa, että olion
+`ptr` datatyyppi osoittaa, että se on joko null-arvo tai osoitin `i32`-arvoon.
+Huomaa myös, että osoitinolio (`ptr`) voidaan merkitä optionaaliseksi, vaikka
+olio `num` ei olisi optionaalinen.
+
+Tämä koodi kertoo meille, että `num`-muuttuja ei koskaan sisällä null-arvoa.
+Tämä muuttuja sisältää aina kelvollisen `i32`-arvon. Mutta sitä vastoin `ptr`-olio saattaa sisältää joko null-
+arvon tai osoittimen `i32`-arvoon.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+var num: i32 = 5;
+var ptr: ?*i32 = &num;
+ptr = null;
+num = 6;
+```
+
+Mutta mitä tapahtuu, jos käännämme pöydän ja merkitsemme `num`-olion optionaaliseksi
+osoitinolion sijaan. Jos teemme niin, osoitinolio ei ole
+enää optionaalinen. Tulos olisi samanlainen (vaikkakin erilainen). Koska silloin meillä olisi
+osoitin optionaaliseen arvoon. Toisin sanoen osoitin arvoon, joka on joko
+null-arvo tai ei-null-arvo.
+
+Alla olevassa esimerkissä toteutamme tämän idean uudelleen. Nyt `ptr`-oliolla
+on datatyyppi `*?i32` `?*i32`:n sijaan. Huomaa, että `*`-symboli tulee tällä kertaa ennen `?`-symbolia.
+Nyt meillä on siis osoitin, joka osoittaa arvoon, joka on joko null
+tai etumerkitty 32-bittinen kokonaisluku.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+var num: ?i32 = 5;
+// ptr have type `*?i32`, instead of `?*i32`.
+const ptr = &num;
+_ = ptr;
+```
+
+
+### Null-arvojen käsittely optioissa {#sec-null-handling}
+
+Kun sinulla on optio-olio Zig-koodissasi, sinun täytyy käsitellä eksplisiittisesti
+mahdollisuus, että tämä olio on null. Se on kuin virheenkäsittely `try`- ja `catch`-avainsanoilla.
+Zigissä sinun täytyy myös käsitellä null-arvoja kuin ne olisivat eräänlainen virhe.
+
+Voimme tehdä sen joko:
+
+- if-lauseella, kuten tekisit C:ssä.
+- `orelse`-avainsanalla.
+- purkamalla optionaaliarvon `?`-metodilla.
+
+Kun käytät if-lausetta, käytät paria pystyviivoja
+purkaaksesi optionaaliarvon ja käyttääksesi tätä "purettua oliota"
+if-lohkon sisällä.
+Käyttäen alla olevaa esimerkkiä viitteenä, jos `num`-olio on null,
+if-lauseen sisällä olevaa koodia ei suoriteta. Muuten
+if-lause purkaa `num`-olion `not_null_num`-olioksi.
+Tämä `not_null_num`-olio on taattu olevan ei-null if-lauseen
+laajuudessa.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const num: ?i32 = 5;
+if (num) |not_null_num| {
+    try stdout.print("{d}\n", .{not_null_num});
+    try stdout.flush();
+}
+```
+
+Nyt `orelse`-avainsana käyttäytyy kuin binäärioperaattori. Yhdistät kaksi lauseketta tällä avainsanalla.
+`orelse`-avainsanan vasemmalla puolella annat lausekkeen, joka saattaa tuottaa
+null-arvon, ja `orelse`-avainsanan oikealla puolella annat toisen lausekkeen,
+joka ei tuota null-arvoa.
+
+`orelse`-avainsanan idea on: jos vasemmalla puolella oleva lauseke
+tuottaa ei-null-arvon, käytetään tätä ei-null-arvoa. Jos kuitenkin
+vasemmalla puolella oleva lauseke tuottaa null-arvon, käytetään sen sijaan
+oikealla puolella olevan lausekkeen arvoa.
+
+Katsottaessa alla olevaa esimerkkiä, koska `x`-olio on tällä hetkellä null,
+`orelse` päätti käyttää vaihtoehtoista arvoa, joka on luku 15.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const x: ?i32 = null;
+const dbl = (x orelse 15) * 2;
+try stdout.print("{d}\n", .{dbl});
+try stdout.flush();
+```
+
+Voit käyttää if-lausetta tai `orelse`-avainsanaa, kun haluat
+ratkaista (tai käsitellä) tämän null-arvon. Jos kuitenkaan ei ole selkeää ratkaisua
+tälle null-arvolle, ja loogisin ja järkevin polku on yksinkertaisesti panikoida
+ja nostaa kova virhe ohjelmassasi, kun tämä null-arvo kohdataan,
+voit käyttää optionaaliolion `?`-metodia.
+
+Pohjimmiltaan kun käytät tätä `?`-metodia, optio-olio puretaan.
+Jos optionaalioliosta löytyy ei-null-arvo, käytetään tätä ei-null-arvoa.
+Muuten käytetään `unreachable`-avainsanaa. Voit lukea lisää tästä
+[`unreacheable`-avainsanasta virallisesta dokumentaatiosta](https://ziglang.org/documentation/master/#unreachable)[^un-docs].
+Mutta pohjimmiltaan kun rakennat Zig-lähdekoodiasi käyttäen build-moodeja `ReleaseSafe` tai `Debug`, tämä
+`unreacheable`-avainsana saa ohjelman panikoimaan ja nostamaan virheen ajonaikana,
+kuten alla olevassa esimerkissä:
+
+```{zig}
+#| eval: false
+const std = @import("std");
+fn return_null(n: i32) ?i32 {
+    if (n == 5) return null;
+    return n;
+}
+
+pub fn main(init: std.process.Init) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    const y: ?i32 = return_null(5);
+    try stdout.print("{d}\n", .{y.?});
+    try stdout.flush();
+}
+```
+
+```
+thread 12767 panic: attempt to use null value
+p7.zig:12:34: 0x103419d in main (p7):
+    try stdout.print("{d}\n", .{y.?});
+                                 ^
+```
+
+
+[^un-docs]: <https://ziglang.org/documentation/master/#unreachable>.

@@ -1,0 +1,922 @@
+---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+translation:
+  source: Chapters/07-build-system.qmd
+  source_sha256: 3d2bb1f1f594144df18c6cd9d8bf5580d7a0a18a3010d24b5575cd66e0495ae1
+  status: complete
+---
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+
+# Build-järjestelmä {#sec-build-system}
+
+
+Tässä luvussa aiomme puhua build-järjestelmästä ja siitä, miten koko projekti
+on rakennettu Zigissä.
+Yksi Zigin tärkeimmistä eduista on, että se sisältää itse kieleen upotetun build-järjestelmän.
+Tämä on hienoa, koska silloin sinun ei tarvitse olla riippuvainen erillisestä ulkoisesta järjestelmästä
+kääntäjästä koodin rakentamiseen.
+
+
+Löydät hyvän kuvauksen Zigin build-järjestelmästä
+[artikkelissa "Build System"](https://ziglang.org/learn/build-system/#user-provided-options)[^zig-art1]
+Zigin viralliselta verkkosivustolta.
+Meillä on myös erinomainen [Felixin kirjoittama viestisarja](https://zig.news/xq/zig-build-explained-part-1-59lf)[^felix].
+Tästä syystä tämä luku on lisäresurssi, johon voit turvautua.
+
+[^felix]: https://zig.news/xq/zig-build-explained-part-1-59lf
+[^zig-art1]: https://ziglang.org/learn/build-system/#user-provided-options
+
+Rakennuskoodi on yksi niistä asioista, joissa Zig osaa parhaiten. Yksi asia, joka on erityisen
+vaikeaa C/C++:ssa ja jopa Rustissa, on lähdekoodin ristiin kääntäminen useisiin kohteisiin
+(esim. useita tietokonearkkitehtuureja ja käyttöjärjestelmiä),
+ja `zig`-kääntäjä tunnetaan yhtenä parhaista olemassa olevista ohjelmistoista
+tätä erityistä tehtävää varten.
+
+
+
+
+## Miten lähdekoodi rakennetaan?
+
+Olemme jo puhuneet lähdekoodin rakentamisen haasteista matalan tason kielillä
+@sec-project-files. Kuten kuvasimme siinä osiossa, ohjelmoijat keksivät build-järjestelmät
+ratkaistakseen nämä haasteet matalan tason kielten lähdekoodin rakentamisessa.
+
+Matalan tason kielet käyttävät kääntäjää kääntääkseen (tai rakentaakseen) lähdekoodin binääriohjeiksi.
+C:ssä ja C++:ssa käytämme yleensä kääntäjiä, kuten `gcc`, `g++` tai `clang`,
+joilla käännämme C- ja C++-lähdekoodin näiksi ohjeiksi.
+Jokaisella kielellä on oma kääntäjänsä, eikä tämä eroa Zigissä.
+
+Zigissä meillä on `zig`-kääntäjä Zig-lähdekoodin kääntämiseksi
+binäärikäskyt, jotka tietokoneemme voi suorittaa.
+Zigissä käännös- (tai rakennus-)prosessiin kuuluu
+seuraavat komponentit:
+
+- Zig-moduulit, jotka sisältävät lähdekoodisi;
+- Kirjastotiedostot (joko dynaaminen kirjasto tai staattinen kirjasto);
+- Kääntäjän liput, jotka räätälöivät rakennusprosessin tarpeidesi mukaan.
+
+Nämä ovat asioita, jotka sinun täytyy yhdistää toisiinsa rakentaaksesi
+lähdekoodisi Zigissä. C:ssä ja C++:ssa olisi ylimääräinen komponentti: käyttämiesi
+kirjastojen otsikkotiedostot. Mutta otsikkotiedostoja ei ole Zigissä, joten tarvitset vain
+huolehtia niistä, jos yhdistät Zig-lähdekoodisi C-kirjastoon.
+Jos näin ei ole, voit unohtaa sen.
+
+Rakennusprosessi on yleensä järjestetty build-skriptiin. Zigissä kirjoitamme
+yleensä tämän build-skriptin projektin juurihakemistossa olevaan Zig-moduuliin,
+jota kutsutaan `build.zig`:ksi. Kun suoritat build-skriptin, projektisi
+rakennetaan binääritiedostoiksi, joita voit käyttää ja jakaa käyttäjillesi.
+
+Build-skripti on yleensä järjestetty *kohdeobjektien* ympärille. Kohde on yksinkertaisesti
+jotain rakennettavaa, eli jotain, jonka haluat `zig`-kääntäjän
+rakentavan sinulle. Tämä "kohde"-käsite on läsnä useimmissa build-järjestelmissä,
+erityisesti CMake[^cmake2].
+
+[^cmake2]: https://cmake.org/cmake/help/latest/manual/cmake-buildsystem.7.html
+
+Voit rakentaa Zigissä neljän tyyppisiä kohdeobjekteja, jotka ovat:
+
+- Suoritettava tiedosto (esim. `.exe`-tiedosto Windowsissa).
+- Jaettu kirjasto (esim. `.so`-tiedosto Linuxissa tai `.dll`-tiedosto Windowsissa).
+- Staattinen kirjasto (esim. `.a`-tiedosto Linuxissa tai `.lib`-tiedosto Windowsissa).
+- Suoritettava tiedosto, joka suorittaa vain yksikkötestejä (eli "yksikkötestien suoritettava").
+
+Aiomme puhua lisää näistä kohdeobjekteista @sec-targets.
+
+
+
+## `build()`-funktio {#sec-build-fun}
+
+Zigin build-skripti sisältää aina julkisen (ja huipputason) `build()`-funktion, joka on ilmoitettu.
+Se on kuin projektisi Zig-päämoduulin `main()`-toiminto, josta keskustelimme @sec-main-file.
+Mutta sen sijaan, että loisit aloituspisteen koodiisi, tämä `build()`-funktio on rakennusprosessin aloituspiste.
+
+Tämän `build()`-funktion tulee hyväksyä osoitin `Build`-olioon syötteenä, ja sen tulee käyttää tätä "build-oliota"
+rakennusprosessin tarvittaviin vaiheisiin. Funktion palautustyyppi on aina `void`,
+ja `Build`-rakenne tulee suoraan Zig-standardikirjastosta (`std.Build`). Voit
+käyttää sitä tuomalla Zig-standardikirjaston `build.zig`-moduuliisi.
+
+Hyvin yksinkertaisena esimerkkinä alla on lähdekoodi, jolla rakennetaan
+suoritettava tiedosto `hello.zig`-moduulista.
+
+```{zig}
+#| eval: false
+const std = @import("std");
+pub fn build(b: *std.Build) void {
+    const exe = b.addExecutable(.{
+       .name = "hello",
+       .root_module = b.createModule(.{
+           .root_source_file = b.path("hello.zig"),
+           .target = b.graph.host
+        })
+    });
+    b.installArtifact(exe);
+}
+```
+
+Voit määrittää ja käyttää muita toimintoja ja objekteja tässä build-skriptissa. Voit myös tuoda
+muita Zig-moduuleja, kuten tavallisesti tekisit missä tahansa muussa projektisi moduulissa.
+Ainoa todellinen vaatimus tälle build-skriptille on julkinen ja huipputason versio
+Määritetty `build()`-funktio, joka hyväksyy syötteeksi osoittimen `Build`-rakenteeseen.
+
+
+## Kohdeobjektit {#sec-targets}
+
+Kuten aiemmissa osissa kuvailimme, build-skripti muodostuu kohdeobjektien ympäriltä.
+Jokainen kohdeobjekti on yleensä binääritiedosto (tai tuloste), jonka haluat saada rakennusprosessista. Voit luetella
+useita kohdeobjekteja build-skriptissäsi, jotta rakennusprosessi luo useita
+binääritiedostot sinulle kerralla.
+
+Voit esimerkiksi olla kehittäjä, joka työskentelee useiden alustojen sovelluksessa,
+ja koska tämä sovellus on monialustainen, sinun on luultavasti julkaistava
+ohjelmistosi binaaritiedostot jokaiselle käyttöjärjestelmälle, jota sovelluksesi tukee loppukäyttäjillesi.
+Siten voit määrittää eri kohdeobjektin rakennusskriptissäsi
+jokaiselle käyttöjärjestelmälle (Windows, Linux jne.), jossa haluat julkaista ohjelmistosi.
+Tämä saa `zig`-kääntäjän rakentamaan projektisi useille kohdekäyttöjärjestelmille kerralla.
+Zig Build Systemin virallisessa dokumentaatiossa on [hyvä koodiesimerkki, joka osoittaa tämän strategian](https://ziglang.org/learn/build-system/#handy-examples)[^zig-ex].
+
+[^zig-ex]: https://ziglang.org/learn/build-system/#handy-examples
+
+
+Kohdeobjekti luodaan seuraavilla menetelmillä käyttöönottamamme `Build`-rakenteessa
+@sec-build-fun
+
+- `addExecutable()` luo suoritettavan tiedoston;
+- `addSharedLibrary()` luo jaetun kirjastotiedoston;
+- `addStaticLibrary()` luo staattisen kirjastotiedoston;
+- `addTest()` luo suoritettavan tiedoston, joka suorittaa yksikkötestejä.
+
+
+Nämä funktiot ovat menetelmiä vastaanottamastasi `Build`-rakenteesta
+funktion `build()` tulona. Ne kaikki, luoda tulosteena
+`Compile`-objekti, joka edustaa käännettävää kohdeobjektia
+`zig`-kääntäjällä. Kaikki nämä funktiot hyväksyvät syötteenä samanlaisen rakenneliteraalin.
+Tämä rakenneliteraali määrittelee kaksi olennaista tietoa tästä kohdeobjektista, jota olet rakentamassa:
+`name`, `root_module`.
+
+Olemme jo nähneet, että näitä kahta vaihtoehtoa käytetään edellisessä esimerkissä,
+jossa käytimme `addExecutable()`-menetelmää suoritettavan kohdeobjektin luomiseen.
+Tämä esimerkki on toistettu alla. Huomaa `path()`-menetelmän käyttö
+`Build`-rakenteesta määrittääksesi polun Zig-moduuliimme `root_module`-vaihtoehdossa.
+
+```{zig}
+#| eval: false
+const exe = b.addExecutable(.{
+   .name = "hello",
+   .root_module = b.createModule(.{
+       .root_source_file = b.path("hello.zig"),
+       .target = b.graph.host
+    })
+});
+```
+
+`name`-vaihtoehto määrittää nimen jonka haluat antaa määritetylle binääritiedostolle
+tällä kohdeobjektilla. Joten tässä esimerkissä rakennamme suoritettavaa tiedostoa nimeltä `hello`.
+On yleistä, että tämä `name`-vaihtoehto asetetaan projektisi nimeksi.
+
+
+Lisäksi `root_module`:n sisällä oleva `target`-vaihtoehto määrittää tämän kohdetietokonearkkitehtuurin (tai kohdekäyttöjärjestelmän).
+binääritiedosto. Jos esimerkiksi haluat tämän kohdeobjektin toimivan Windows-koneessa
+joka käyttää `x86_64`-arkkitehtuuria, voit asettaa tämän `target`-asetuksen esimerkiksi arvoon `x86_64-windows-gnu`.
+Tämä saa `zig`-kääntäjän kääntämään projektin toimimaan `x86_64` Windows-koneessa.
+Näet täydellisen luettelon arkkitehtuureista ja käyttöjärjestelmistä, joita `zig`-kääntäjä tukee suorittamalla
+`zig targets`-komento terminaalissa.
+
+Nyt, jos rakennat projektia toimimaan nykyisellä koneella
+jota käytät tämän build-skriptin suorittamiseen, voit asettaa tämän `target`
+vaihtoehto `Build.graph`-objektin `host`-menetelmään, kuten teimme yllä olevassa esimerkissä.
+Tämä `host`-menetelmä tunnistaa nykyisen koneen, jossa olet
+tällä hetkellä käynnissä `zig`-kääntäjä.
+
+
+Lopulta `root_module`:n sisällä oleva `.root_source_file`-vaihtoehto määrittää polun projektisi juuri-Zig-moduuliin.
+Se on Zig-moduuli, joka sisältää sovelluksesi aloituskohdan (eli `main()`-funktion) tai kirjastosi pääsovellusliittymän.
+Tämä tarkoittaa myös sitä, että kaikki projektisi muodostavat Zig-moduulit löydetään automaattisesti
+tuontilausekkeista, jotka sinulla on tässä "juurilähdetiedostossa".
+`zig`-kääntäjä voi havaita, milloin Zig-moduuli riippuu toisesta tuontikäskyjen avulla,
+ja sen seurauksena se voi löytää koko projektissasi käytettyjen Zig-moduulien kartan.
+
+Tämä on kätevää, ja se eroaa muista rakennusjärjestelmistä.
+Esimerkiksi CMakessa sinun on lueteltava erikseen polut kaikkiin lähdetiedostoihin, joita haluat
+sisällyttää rakennusprosessiisi. Tämä on luultavasti oire "ehdon puutteesta
+rakennus" C- ja C++-kääntäjissä. Koska heiltä puuttuu tämä ominaisuus, sinulla on
+valita, mitkä lähdetiedostot lähetetään C/C++-kääntäjälle, koska ei
+jokainen C/C++-koodi on kannettava tai tuettu kaikissa käyttöjärjestelmissä, ja siksi
+aiheuttaisi rakennusvirheen C/C++-kääntäjässä.
+
+
+Nyt yksi tärkeä yksityiskohta rakennusprosessissa on, että sinun on **explicitly
+install the kohdeobjektis that you create in your build script** käyttämällä
+`Build`-rakenteen `installArtifact()`-menetelmä.
+
+Aina kun käynnistät projektisi rakennusprosessin kutsumalla komennon `build`
+`zig`-kääntäjän juureen luodaan uusi hakemisto nimeltä `zig-out`
+projektisi hakemisto. Tämä uusi hakemisto sisältää rakennusprosessin tulokset,
+eli lähdekoodistasi rakennetut binaaritiedostot.
+
+`installArtifact()`-menetelmä asentaa (tai kopioi) rakennetut kohdeobjektit
+jonka määritit tähän `zig-out`-hakemistoon.
+Tämä tarkoittaa, että jos et
+asenna build-skriptissa määrittämäsi kohdeobjektit, nämä kohdeobjektit ovat
+olennaisesti hylätty rakennusprosessin lopussa.
+
+Saatat esimerkiksi rakentaa projektia, joka käyttää rakennettua kolmannen osapuolen kirjastoa
+yhdessä projektin kanssa. Joten kun rakennat projektiasi, sinun on ensin
+rakentaa kolmannen osapuolen kirjasto ja sitten linkittää se projektisi lähdekoodiin.
+Joten tässä tapauksessa meillä on kaksi binaaritiedostoa, jotka luodaan rakennusprosessissa (projektisi suoritettava tiedosto ja kolmannen osapuolen kirjasto).
+Mutta vain yksi kiinnostaa, joka on projektimme suoritettava tiedosto.
+Voimme hylätä kolmannen osapuolen kirjaston binaaritiedoston yksinkertaisesti olemalla asentamatta sitä
+tähän `zig-out`-hakemistoon.
+
+Tämä `installArtifact()`-menetelmä on melko yksinkertainen. Muista vain soveltaa sitä jokaiseen
+kohdeobjekti, jonka haluat tallentaa `zig-out`-hakemistoon, kuten alla olevassa esimerkissä:
+
+
+```{zig}
+#| eval: false
+const exe = b.addExecutable(.{
+   .name = "hello",
+   .root_module = b.createModule(.{
+       .root_source_file = b.path("hello.zig"),
+       .target = b.graph.host
+    })
+});
+
+b.installArtifact(exe);
+```
+
+
+## Rakennustilan asettaminen
+
+Olemme puhuneet kolmesta keskeisestä vaihtoehdosta, jotka asetetaan, kun luot uuden kohdeobjektin.
+Mutta on myös neljäs vaihtoehto, jolla voit asettaa tämän kohdeobjektin rakennustilan,
+joka on `optimize` vaihtoehto.
+Tätä vaihtoehtoa kutsutaan tällä tavalla, koska Zigin rakennustiloja käsitellään enemmän
+"optimointi vs turvallisuus" -ongelma. Optimoinnilla on siis tässä tärkeä rooli.
+Älä huoli, palaan tähän kysymykseen hyvin pian.
+
+Zigissä meillä on neljä rakennustilaa (jotka on lueteltu alla). Jokainen näistä rakennustiloista tarjoaa
+erilaisia etuja ja ominaisuuksia. Kuten kuvasimme asiakirjassa @sec-compile-debug-mode, `zig`-kääntäjä
+käyttää `Debug`-rakennustilaa oletuksena, kun et nimenomaisesti valitse rakennustilaa.
+
+- `Debug`, tila, joka tuottaa ja sisältää virheenkorjaustiedot rakennusprosessin lähdössä (eli kohdeobjektin määrittelemässä binääritiedostossa);
+- `ReleaseSmall`, tila, joka yrittää tuottaa pienikokoisen binaaritiedoston;
+- `ReleaseFast`, tila, joka yrittää optimoida koodisi mahdollisimman nopean binaaritiedoston tuottamiseksi;
+- `ReleaseSafe`, tila, joka yrittää tehdä koodistasi mahdollisimman turvallisen sisällyttämällä suojatoimia mahdollisuuksien mukaan.
+
+Joten kun rakennat projektia, voit asettaa kohdeobjektin rakennustilaksi esimerkiksi `ReleaseFast`, joka kertoo
+`zig`-kääntäjä soveltaaksesi tärkeitä optimointeja koodiisi. Tämä luo binaaritiedoston
+joka yksinkertaisesti toimii nopeammin useimmissa yhteyksissä, koska se sisältää optimoidumman version koodistasi.
+Tämän seurauksena menetämme kuitenkin usein joitain turvaominaisuuksia koodistamme.
+Koska jotkin turvatarkistukset poistetaan lopullisesta binaaritiedostosta,
+mikä saa koodisi toimimaan nopeammin, mutta vähemmän turvallisesti.
+
+Tämä valinta riippuu nykyisistä prioriteeteistasi. Jos olet rakentamassa salaus- tai pankkijärjestelmää, saatat
+mieluummin priorisoi turvallisuutta koodissasi, joten valitset `ReleaseSafe`-rakennustilan, joka on vähän
+hitaampi ajaa, mutta paljon turvallisempi, koska se sisältää kaikki mahdolliset ajonaikaiset turvatarkistukset binaaritiedostossa
+rakennettu rakennusprosessissa. Toisaalta, jos kirjoitat esimerkiksi peliä, saatat haluta priorisoida suorituskykyä
+yli turvallisuuden käyttämällä `ReleaseFast`-rakennustilaa, jotta käyttäjäsi voivat kokea nopeammat kuvataajuudet pelissäsi.
+
+Alla olevassa esimerkissä luomme saman kohdeobjektin, jota olemme käyttäneet aiemmissa esimerkeissä.
+Mutta tällä kertaa määritämme tämän kohdeobjektin rakennustilan `ReleaseSafe`-tilaan.
+
+```{zig}
+#| eval: false
+const exe = b.addExecutable(.{
+   .name = "hello",
+   .root_module = b.createModule(.{
+       .root_source_file = b.path("hello.zig"),
+       .target = b.graph.host,
+       .optimize =.ReleaseSafe
+    })
+});
+b.installArtifact(exe);
+```
+
+
+## Rakennuksen version määrittäminen
+
+Aina kun luot kohdeobjektin build-skriptissäsi, voit määrittää version
+numero tähän tiettyyn rakennusversioon semanttisen versiointikehyksen mukaisesti.
+Saat lisätietoja semanttisesta versiosta vierailemalla [Semantic Versioning -sivustolla](https://semver.org/)[^semver].
+Joka tapauksessa Zigissä voit määrittää rakennusversiosi antamalla `SemanticVersion`-rakenteen
+`version`-vaihtoehto, kuten alla olevassa esimerkissä:
+
+
+[^semver]: https://semver.org/
+
+
+```{zig}
+#| eval: false
+const exe = b.addExecutable(.{
+   .name = "hello",
+   .root_module = b.createModule(.{
+       .root_source_file = b.path("hello.zig"),
+       .target = b.graph.host
+    }),
+   .version =.{
+       .major = 2,.minor = 9,.patch = 7
+    }
+});
+b.installArtifact(exe);
+```
+
+
+## Käyttöjärjestelmän tunnistaminen build-skriptissäsi {#sec-detect-os}
+
+build-järjestelmissä on hyvin yleistä käyttää erilaisia vaihtoehtoja tai sisällyttää eri moduuleja tai
+linkittää eri kirjastoihin käyttöjärjestelmästä (OS) riippuen
+johon kohdistat rakennusprosessissa.
+
+Zigissä voit havaita rakennusprosessin kohdekäyttöjärjestelmän katsomalla
+`os.tag` `builtin`-moduulin sisällä Zig-kirjastosta.
+Alla olevassa esimerkissä käytämme if-lausetta suorittamaan joitakin
+mielivaltaista koodia, kun rakennusprosessin kohde on a
+Windows-järjestelmä.
+
+```{zig}
+#| eval: false
+const builtin = @import("builtin");
+if (builtin.target.os.tag ==.windows) {
+    // Code that runs only when the target of
+    // the compilation process is Windows.
+}
+```
+
+
+## Suoritusvaiheen lisääminen rakennusprosessiin
+
+Yksi asia, joka on siisti Rustissa, on se, että voit kääntää ja suorittaa omasi
+lähdekoodi yhdellä komennolla (`cargo run`) Rust-kääntäjästä.
+Näimme @sec-compile-run-code, kuinka voimme suorittaa samanlaisen työn Zigissä,
+Zig-lähdekoodin rakentaminen ja suorittaminen `zig`-kääntäjän `run`-komennon kautta.
+
+Mutta kuinka voimme samanaikaisesti rakentaa ja ajaa kohdeobjektin määrittämää binaaritiedostoa
+rakentaa skripti?
+Vastaus on sisällyttämällä "suorita artefakti" rakennusskriptimme.
+Ajo-artefaktti luodaan `addRunArtifact()`-menetelmällä `Build`-rakenteesta.
+Annamme yksinkertaisesti syötteeksi tälle funktiolle kohdeobjektin, joka kuvaa meidän binaaritiedostoa
+haluavat toteuttaa. Tämän seurauksena tämä toiminto luo suoritettavan artefaktin, joka pystyy suorittamaan
+tämä binääritiedosto.
+
+Alla olevassa esimerkissä määritämme suoritettavan binaaritiedoston nimeltä `hello`,
+ja käytämme tätä `addRunArtifact()`-menetelmää suoritusartefaktin luomiseen, joka suorittaa
+tämä `hello` suoritettava tiedosto.
+
+```{zig}
+#| eval: false
+const exe = b.addExecutable(.{
+   .name = "hello",
+   .root_module = b.createModule(.{
+       .root_source_file = b.path("src/hello.zig"),
+       .target = b.graph.host
+    })
+});
+b.installArtifact(exe);
+const run_arti = b.addRunArtifact(exe);
+```
+
+Nyt kun olemme luoneet tämän suoritusartefaktin, meidän on sisällytettävä se
+rakennusprosessi. Teemme sen julistamalla uuden askeleen rakentamisessamme
+komentosarja tämän artefaktin kutsumiseksi `Build`-menetelmän `step()` kautta
+struct.
+
+Voimme antaa tälle vaiheelle minkä tahansa nimen, mutta meidän
+Tässä yhteydessä aion nimetä tämän vaiheen "juoksuksi".
+Lisäksi annan sille lyhyen kuvauksen tähän vaiheeseen ("Suorita projekti").
+
+```{zig}
+#| eval: false
+const run_step = b.step(
+    "run", "Run the project"
+);
+```
+
+
+Nyt kun olemme julistaneet tämän "suoritusvaiheen", meidän on kerrottava se Zigille
+tämä "suoritusvaihe" riippuu ajoartefaktista.
+Toisin sanoen suoritettava artefakti riippuu aina "vaiheesta", joka suoritetaan tehokkaasti.
+Luomalla tämä riippuvuus
+Lopuksi luomme tarvittavat komennot suoritettavan tiedoston rakentamiseksi ja suorittamiseksi
+build-skriptista.
+
+Voimme määrittää riippuvuuden suoritusvaiheen ja suoritusartefaktin välille
+käyttämällä `dependOn()`-menetelmää suoritusvaiheesta. Eli me ensin
+luo suoritusvaihe ja sitten linkittäämme sen ajon artefakttiin
+käyttämällä tätä `dependOn()`-menetelmää suoritusvaiheesta alkaen.
+
+```{zig}
+#| eval: false
+run_step.dependOn(&run_arti.step);
+```
+
+Tämän tietyn build-skriptin koko lähdekoodi
+kirjoitimme pala palalta tässä osiossa, on
+saatavana `build_and_run.zig`-moduulissa. Voit
+katso tämä moduuli
+[vierailet tämän kirjan virallisessa arkistossa](https://github.com/pedropark99/zig-book/blob/main/ZigExamples/build_system/build_and_run.zig)
+[^module-src].
+
+
+[^module-src]: https://github.com/pedropark99/zig-book/blob/main/ZigExamples/build_system/build_and_run.zig
+
+Kun ilmoitat uuden vaiheen build-skriptissasi, tämä vaihe
+tulee saataville `build`-komennon kautta `zig`-kääntäjässä.
+Voit itse asiassa nähdä tämän vaiheen suorittamalla `zig build --help` terminaalissa, kuten
+alla olevassa esimerkissä, jossa voimme nähdä, että tämä uusi "ajo"
+vaihe, jonka ilmoitimme build-skriptissa, ilmestyi ulostuloon.
+
+```bash
+zig build --help
+```
+
+```
+Steps:
+ ...
+  run   Run the project
+ ...
+```
+
+Nyt kaikki mitä tarvitsemme on
+kutsua tätä "ajo"-vaihetta, jonka loimme build-skriptissamme. Me
+kutsua sitä käyttämällä nimeä, jonka annoimme tälle vaiheelle
+`zig`-kääntäjän `build`-komennon jälkeen.
+Tämä saa kääntäjän rakentamaan suoritettavan tiedostomme
+ja suorita se samaan aikaan.
+
+```bash
+zig build run
+```
+
+## Yksikkötestien rakentaminen projektissa
+
+Olemme puhuneet pitkään yksikkötestien kirjoittamisesta Zigissä @sec-unittests,
+ja olemme myös keskustelleet näiden yksikkötestien suorittamisesta
+`zig`-kääntäjän `test`-komento. kuitenkin
+kuten teimme edellisen osan komennolla `run`, saatamme myös
+Sisällytä joitain komentoja rakentamisskriptiimme myös rakentaaksesi ja suorittaaksesi yksikkötestejä projektissamme.
+
+Joten jälleen kerran aiomme keskustella siitä, kuinka tietty sisäänrakennettu komento `zig`-kääntäjästä,
+(tässä tapauksessa XIDEbf7295c39afX-komentoa) voidaan käyttää Zig:n build-skriptissä.
+Tässä "testikohdeobjekti" tulee peliin.
+Kuten asiakirjassa @sec-targets kuvattiin, voimme luoda testikohteen käyttämällä `addTest()`-menetelmää.
+`Build`-rakenne. Ensimmäinen asia, joka meidän on tehtävä, on
+ilmoittaa testikohdeobjektin rakennusskriptissämme.
+
+
+```{zig}
+#| eval: false
+const test_exe = b.addTest(.{
+   .name = "unit_tests",
+   .root_module = b.createModule(.{
+       .root_source_file = b.path("src/main.zig"),
+       .target = b.graph.host
+    })
+});
+
+b.installArtifact(test_exe);
+```
+
+
+Testikohdeobjekti valitsee käytännössä kaikki `test`-lohkot kaikissa Zig-moduuleissa
+koko projektissasi ja rakentaa vain sisällä olevan lähdekoodin
+nämä `test`-lohkot projektissasi. Tämän seurauksena tämä kohdeobjekti
+luo suoritettavan tiedoston, joka sisältää vain lähdekoodin
+kaikissa näissä `test`-lohkoissa (eli yksikkötesteissä) projektissasi.
+
+Täydellinen! Nyt kun olemme ilmoittaneet tämän testikohteen, suoritettavan tiedoston
+nimeltä `unit_tests` on `zig`-kääntäjän rakentama, kun käynnistämme koonnoksen
+komentosarja `build`-komennolla. Rakentamisen jälkeen
+prosessi on valmis, voimme yksinkertaisesti suorittaa tämän `unit_tests` suoritettavan tiedoston
+terminaalissa.
+
+Jos kuitenkin muistat edellisen osion, olemme jo oppineet
+kuinka voimme luoda build-skriptiamme suoritusvaiheen suoritettavan tiedoston suorittamiseksi
+rakennettu build-skriptilla.
+
+Voisimme siis yksinkertaisesti lisätä suoritusvaiheen rakennusskriptimme suorittaaksemme nämä yksikkötestit
+yhdestä komennosta `zig`-kääntäjässä, mikä helpottaa elämäämme.
+Alla olevassa esimerkissä esittelemme komennot
+rekisteröi uusi rakennusvaihe nimeltä "testit" rakennusskriptiimme
+suorittaaksesi nämä yksikkötestit.
+
+```{zig}
+#| eval: false
+const run_arti = b.addRunArtifact(test_exe);
+const run_step = b.step("tests", "Run yksikkötestit");
+run_step.dependOn(&run_arti.step);
+```
+
+Nyt kun olemme rekisteröineet tämän uuden rakennusvaiheen, voimme käynnistää sen kutsumalla alla olevaa komentoa
+terminaalissa. Voit myös tarkistaa koko lähteen
+koodi tälle tietylle build-skriptille `build_tests.zig`-moduulissa osoitteessa
+[tämän kirjan virallinen arkisto](https://github.com/pedropark99/zig-book/blob/main/ZigExamples/build_system/build_tests.zig)
+[^module-src2].
+
+
+[^module-src2]: https://github.com/pedropark99/zig-book/blob/main/ZigExamples/build_system/build_tests.zig
+
+
+```bash
+zig build tests
+```
+
+
+## Rakennusprosessin räätälöinti käyttäjän toimittamilla vaihtoehdoilla
+
+Joskus haluat tehdä build-skriptin, jota käyttäjä voi muokata
+projektistasi. Voit tehdä sen luomalla käyttäjän toimittamia vaihtoehtoja
+rakennusohjelmasi. Luomme käyttäjän tarjoaman vaihtoehdon käyttämällä
+`option()`-menetelmä `Build`-rakenteesta.
+
+Tällä menetelmällä luomme "build-valinnan", joka voidaan välittää
+`build.zig`-skriptiin komentorivillä. Käyttäjällä on asetusvalta
+tämä vaihtoehto `build`-komennossa osoitteesta
+`zig`-kääntäjä. Toisin sanoen jokainen luomamme rakennusvaihtoehto
+tulee uudeksi komentoriviargumentiksi, joka on käytettävissä `build`-komennon kautta
+kääntäjästä.
+
+Nämä "käyttäjän asettamat asetukset" asetetaan käyttämällä komentorivillä etuliitettä `-D`.
+Jos esimerkiksi määritämme vaihtoehdon nimeltä `use_zlib`, se saa loogisen arvon, joka
+osoittaa, pitäisikö meidän linkittää lähdekoodimme `zlib`:ään vai ei, voimme asettaa arvon
+tämän vaihtoehdon komentorivillä `-Duse_zlib`. Alla esimerkki koodista
+osoittaa tämän ajatuksen:
+
+```{zig}
+#| eval: false
+const std = @import("std");
+pub fn build(b: *std.Build) void {
+    const use_zlib = b.option(
+        bool,
+        "use_zlib",
+        "Should link to zlib?"
+    ) orelse false;
+    const exe = b.addExecutable(.{
+       .name = "hello",
+       .root_module = b.createModule(.{
+           .root_source_file = b.path("example.zig"),
+           .target = b.graph.host
+        })
+    });
+    if (use_zlib) {
+        exe.root_module.linkSystemLibrary("zlib",.{});
+    }
+    b.installArtifact(exe);
+}
+```
+
+```bash
+zig build -Duse_zlib=false
+```
+
+
+## Linkittäminen ulkoisiin kirjastoihin
+
+
+Yksi olennainen osa jokaista rakennusprosessia on linkitysvaihe.
+Tämä vaihe on vastuussa useiden objektitiedostojen yhdistämisestä
+jotka edustavat koodiasi, yhdeksi suoritettavaksi tiedostoksi. Se myös linkittää
+tämä suoritettava tiedosto ulkoisiin kirjastoihin, jos käytät sellaista koodissasi.
+
+Zigissä meillä on kaksi käsitettä "kirjastosta", jotka ovat: 1) järjestelmän kirjasto;
+2) paikallinen kirjasto. Järjestelmän kirjasto on vain kirjasto, joka on jo asennettu
+järjestelmässäsi. Paikallinen kirjasto on kirjasto, joka kuuluu nykyiseen
+hanke; kirjasto, joka on projektihakemistossasi, ja
+joita rakennat yhdessä projektisi lähdekoodin kanssa.
+
+Perusero näiden kahden välillä on, että järjestelmän kirjasto on jo
+oletettavasti rakennettu ja asennettu järjestelmääsi ja kaikki mitä sinun tarvitsee tehdä
+on linkittää lähdekoodisi tähän kirjastoon aloittaaksesi sen käytön.
+Teemme sen käyttämällä `linkSystemLibrary()`-menetelmää kohdasta a
+`Compile.root_module` objekti. Tämä menetelmä hyväksyy kirjaston nimen
+merkkijonossa syötteenä. Muista @sec-targets, että `Compile`-objekti
+on kohdeobjekti, jonka ilmoitat build-skriptissasi.
+
+Kun linkittäät tietyn kohdeobjektin järjestelmän kirjastoon,
+`zig`-kääntäjä käyttää `pkg-config` löytääkseen, missä
+ovat tämän kirjaston binääritiedostoja ja myös otsikkotiedostoja
+järjestelmässäsi.
+Kun se löytää nämä tiedostot, linkki on `zig`-kääntäjässä
+linkittää objektitiedostosi tämän kirjaston tiedostoihin
+tuottaa sinulle yhden binaaritiedoston.
+
+Alla olevassa esimerkissä luomme suoritettavan tiedoston nimeltä `image_filter`,
+ja linkittäämme tämän suoritettavan tiedoston C-standardikirjastoon asettamalla `link_libc`
+vaihtoehto `true`. Mutta linkittäämme myös tämän suoritettavan tiedoston
+C-kirjasto `libpng`, joka on tällä hetkellä asennettuna järjestelmääni.
+
+```{zig}
+#| eval: false
+const std = @import("std");
+pub fn build(b: *std.Build) void {
+    const exe = b.addExecutable(.{
+       .name = "image_filter",
+       .root_module = b.createModule(.{
+           .root_source_file = b.path("src/main.zig"),
+           .target = b.graph.host
+           .link_libc = true,
+        })
+    });
+    exe.root_module.linkSystemLibrary("png",.{});
+    b.installArtifact(exe);
+}
+```
+
+Jos linkittäät projektissasi C-kirjastoon, se on yleensä hyvä idea
+linkittääksesi koodisi myös C Standard Libraryyn. Koska on hyvin todennäköistä
+että tämä C-kirjasto käyttää jossain vaiheessa joitain C-standardikirjaston toimintoja.
+Sama koskee C++-kirjastoja. Joten, jos linkittäät
+C++-kirjastot, on hyvä idea linkittää projektisi C++:aan
+Vakiokirjasto asettamalla `link_libcpp`-asetukseksi `true`.
+
+Tilauspuolella, kun haluat linkittää paikalliseen kirjastoon,
+sinun tulee käyttää `Compile.root_module`-objektin menetelmää `linkLibrary()`.
+Tämä menetelmä odottaa saavansa toisen `Compile`-objektin syötteenä.
+Toisin sanoen toinen kohdeobjekti, joka on määritetty rakennusskriptissäsi,
+käyttämällä joko `addStaticLibrary()`- tai `addSharedLibrary()`-menetelmiä
+joka määrittelee rakennettavan kirjaston.
+
+Kuten aiemmin keskustelimme, paikallinen kirjasto on kirjasto
+joka on paikallinen projektillesi ja jota rakennetaan yhdessä
+projektisi kanssa. Joten sinun on luotava kohdeobjekti rakennusskriptissäsi
+rakentamaan tämän paikallisen kirjaston. Sitten linkittäät projektisi kiinnostavat kohdekohteet,
+tällä kohdeobjektilla, joka tunnistaa tämän paikallisen kirjaston.
+
+Katso tämä esimerkki, joka on purettu [`libxev`-kirjaston](https://github.com/mitchellh/libxev/tree/main)[^libxev2] build-skriptistä.
+Tästä katkelmasta näet sen
+julistamme jaetun kirjastotiedoston tiedostosta `c_api.zig`
+moduuli. Sitten myöhemmin build-skriptissa julistamme an
+suoritettava tiedosto nimeltä `"dynamic-binding-test"`, joka
+linkit tähän jaettuun kirjastoon, jonka määritimme aiemmin
+käsikirjoituksessa.
+
+[^libxev2]: https://github.com/mitchellh/libxev/tree/main
+
+
+```{zig}
+#| eval: false
+const dynamic_lib = b.addSharedLibrary(.{
+   .name = dynamic_lib_name,
+   .root_module = b.createModule(.{
+       .root_source_file = b.path("src/c_api.zig"),
+       .target = b.graph.host
+    })
+});
+b.installArtifact(dynamic_lib);
+//... more lines in the script
+const dynamic_binding_test = b.addExecutable(.{
+   .name = "dynamic-binding-test",
+   .root_module = b.createModule(.{
+       .root_source_file = b.path("src/test.zig"),
+       .target = b.graph.host
+    })
+});
+dynamic_binding_test.root_module.linkLibrary(
+    dynamic_lib
+);
+```
+
+
+
+## Rakennus C koodi {#sec-building-c-code}
+
+`zig`-kääntäjän mukana tulee C-kääntäjä, joka on upotettu siihen. Toisin sanoen
+voit käyttää `zig`-kääntäjää C-projektien rakentamiseen. Tämä C-kääntäjä on saatavilla
+`zig`-kääntäjän `cc`-komennon kautta.
+
+Esimerkkinä käytetään kuuluisaa [FreeType-kirjastoa](https://freetype.org/)[^freetype].
+FreeType on yksi eniten käytetyistä ohjelmistoista maailmassa.
+Se on C-kirjasto, joka on suunniteltu tuottamaan korkealaatuisia fontteja. Mutta se on myös
+käytetään voimakkaasti teollisuudessa tekstin ja fonttien alkuperäiseen toistoon
+tietokoneesi näytössä.
+
+Tässä osiossa aiomme kirjoittaa build-skriptin pala palalta, joka pystyy
+FreeType-projektin rakentamisesta lähteestä.
+Löydät tämän build-skriptin lähdekoodin osoitteesta
+[`freetype-zig` arkisto](https://github.com/pedropark99/freetype-zig/tree/main)[^freetype-zig]
+saatavilla GitHubista.
+
+[^freetype]: https://freetype.org/
+[^freetype-zig]: https://github.com/pedropark99/freetype-zig/tree/main
+
+Kun olet ladannut FreeTypen lähdekoodin viralliselta verkkosivustolta[^freetype],
+voit aloittaa `build.zig`-moduulin kirjoittamisen. Aloitamme määrittämällä kohdeobjektin
+joka määrittää binääritiedoston, jonka haluamme kääntää.
+
+Esimerkkinä rakentan projektin staattisena kirjastotiedostona `addStaticLibrary()`-menetelmällä
+luodaksesi kohdeobjektin. Lisäksi, koska FreeType on C-kirjasto, linkittään myös kirjaston
+`libc` vastaan `link_libc`-vaihtoehdon kautta, jotta voidaan taata, että
+C-standardikirjaston sisältö käsitellään rakennusprosessissa.
+
+
+```{zig}
+#| eval: false
+const lib = b.addStaticLibrary(.{
+   .name = "freetype",
+   .root_module = b.createModule(.{
+       .target = b.graph.host,
+       .link_libc = true
+    })
+});
+```
+
+### C-kääntäjän lippujen luominen
+
+Monet ohjelmoijat tuntevat kääntäjän liput myös "kääntäjävaihtoehtoina",
+tai myös "komentovaihtoehtoina" GCC:n virallisessa dokumentaatiossa.
+On reilua kutsua niitä myös C-kääntäjän "komentoriviargumenteiksi".
+Yleensä käytämme kääntäjän lippuja joidenkin kääntäjän ominaisuuksien kytkemiseen päälle (tai pois päältä),
+tai muokata kokoamisprosessia projektimme tarpeiden mukaan.
+
+Zigillä kirjoitetuissa build-skripteissä listaamme tavallisesti rakennusprosessissa käytettävät C-kääntäjän liput.
+yksinkertaisessa taulukossa, kuten alla olevassa esimerkissä.
+
+```{zig}
+#| eval: false
+const c_flags = [_][]const u8{
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+};
+```
+
+Teoriassa mikään ei estä sinua käyttämästä tätä taulukkoa "sisällytäpolkujen" lisäämiseen (`-I`-lipulla)
+tai "kirjastopolut" (lippu `-L`) rakennusprosessiin. Mutta Zigissä on muodollisia tapoja
+lisää tämäntyyppisiä polkuja rakennusprosessiin. Molempia käsitellään @sec-include-paths
+ja @sec-library-paths.
+
+Joka tapauksessa Zigissä lisäämme C-liput rakennusprosessiin yhdessä niiden C-tiedostojen kanssa, jotka haluamme kääntää käyttämällä
+`addCSourceFile()` ja `addCSourceFiles()` menetelmät. Yllä olevassa esimerkissä olemme juuri ilmoittaneet
+C-liput, joita haluamme käyttää. Mutta emme ole vielä lisänneet niitä rakennusprosessiin.
+Tätä varten meidän on myös lueteltava käännettävät C-tiedostot.
+
+### C-tiedostojen luettelointi
+
+C-tiedostot, jotka sisältävät "alustojen välisen" lähdekoodin, on lueteltu `c_source_files`
+alla oleva objekti. Nämä ovat C-tiedostoja, jotka sisältyvät oletuksena jokaiseen alustaan
+FreeType-kirjaston tukema. Nyt, koska C-tiedostojen määrä FreeType-kirjastossa on suuri,
+Olen jättänyt pois loput tiedostot alla olevasta koodiesimerkistä lyhyyden vuoksi.
+
+```{zig}
+#| eval: false
+const c_source_files = [_][]const u8{
+    "src/autofit/autofit.c",
+    "src/base/ftbase.c",
+    //... and many other C files.
+};
+```
+
+Nyt meillä on "cros-platform" lähdekoodin lisäksi myös C-tiedostoja FreeType-projektissa
+jotka ovat alustakohtaisia, mikä tarkoittaa, että ne sisältävät lähdekoodia, joka voidaan kääntää vain tietyille alustoille,
+ja sen seurauksena ne sisällytetään vain näiden erityisten kohdealustojen rakennusprosessiin.
+Nämä C-tiedostot listaavat objektit näkyvät alla olevassa koodiesimerkissä.
+
+```{zig}
+#| eval: false
+const windows_c_source_files = [_][]const u8{
+    "builds/windows/ftdebug.c",
+    "builds/windows/ftsystem.c"
+};
+const linux_c_source_files = [_][]const u8{
+    "src/base/ftsystem.c",
+    "src/base/ftdebug.c"
+};
+```
+
+Nyt kun olemme ilmoittaneet sekä tiedostot, jotka haluamme sisällyttää, että C-kääntäjän liput käytettäväksi,
+voimme lisätä ne FreeType-kirjastoa kuvaavaan kohdeobjektiin käyttämällä
+`addCSourceFile()` ja `addCSourceFiles()` menetelmät.
+
+Molemmat toiminnot ovat menetelmiä `Compile.root_module`-objektista.
+`addCSourceFile()`-menetelmä pystyy lisäämään yhden C-tiedoston kohdeobjektiin,
+`addCSourceFiles()`-menetelmää käytetään useiden C-tiedostojen lisäämiseen yhdessä komennossa.
+Saatat mieluummin käyttää `addCSourceFile()`, kun sinun on käytettävä erilaisia kääntäjälippuja
+tietyissä projektisi C-tiedostoissa. Mutta jos voit käyttää samoja kääntäjän lippuja
+kaikissa C-tiedostoissa, niin `addCSourceFiles()` on todennäköisesti parempi vaihtoehto.
+
+Huomaa, että käytämme `addCSourceFiles()`-menetelmää alla olevassa esimerkissä,
+lisätäksesi sekä C-tiedostot että C-kääntäjän liput. Huomaa myös, että me
+käyttävät `os.tag`, josta opimme @sec-detect-os, lisätäkseen alustakohtaisen
+C-tiedostoja.
+
+```{zig}
+#| eval: false
+const builtin = @import("builtin");
+lib.root_module.addCSourceFiles({
+   .files=&c_source_files,
+   .flags=&c_flags
+});
+
+switch (builtin.target.os.tag) {
+   .windows => {
+        lib.root_module.addCSourceFiles({
+           .files=&windows_c_source_files,
+           .flags=&c_flags
+        });
+    },
+   .linux => {
+        lib.root_module.addCSourceFiles({
+           .files=&linux_c_source_files,
+           .flags=&c_flags
+        });
+    },
+    else => {},
+}
+```
+
+
+### C-makrojen määrittely
+
+C-makrot ovat olennainen osa C-ohjelmointikieltä,
+ja ne määritellään yleisesti C-kääntäjän lipulla `-D`.
+Zigissä voit määrittää rakennusprosessissasi käytettävän C-makron
+käyttämällä `addCMacro()`-menetelmää kohdeobjektin attribuutista `root_module`
+määrittää binääritiedoston, jota olet rakentamassa.
+
+Alla olevassa esimerkissä käytämme määrittelemäämme `lib`-objektia
+aiemmissa osissa määritelläksesi joitakin FreeType-projektin käyttämiä C-makroja
+kokoamisprosessissa. Nämä C-makrot määrittävät, onko FreeType
+pitäisi (tai ei pitäisi) sisältää eri toimintoja
+ulkoisista kirjastoista.
+
+```{zig}
+#| eval: false
+lib.root_module.addCMacro("FT_DISABLE_ZLIB", "TRUE");
+lib.root_module.addCMacro("FT_DISABLE_PNG", "TRUE");
+lib.root_module.addCMacro("FT_DISABLE_HARFBUZZ", "TRUE");
+lib.root_module.addCMacro("FT_DISABLE_BZIP2", "TRUE");
+lib.root_module.addCMacro("FT_DISABLE_BROTLI", "TRUE");
+lib.root_module.addCMacro("FT2_BUILD_LIBRARY", "TRUE");
+```
+
+
+### Kirjastopolkujen lisääminen {#sec-library-paths}
+
+Kirjastopolut ovat tietokoneesi polkuja, joita C-kääntäjä etsii (tai etsii).
+kirjastotiedostot linkitettäväksi lähdekoodiisi. Toisin sanoen, kun käytät kirjastoa
+C-lähdekoodi ja pyydät C-kääntäjää linkittämään lähdekoodisi tähän kirjastoon,
+C-kääntäjä etsii tämän kirjaston binaaritiedostoja listatuista poluista
+tässä "kirjastopolkujen" joukossa.
+
+Nämä polut ovat alustakohtaisia, ja oletusarvoisesti C-kääntäjä alkaa katsomalla a
+ennalta määritetty joukko paikkoja tietokoneellasi. Mutta voit lisätä polkuja (tai paikkoja)
+tähän listaan. Sinulla voi esimerkiksi olla kirjasto asennettuna epätavanomaiseen paikkaan
+tietokoneeseen, ja voit saada C-kääntäjän "näkemään" tämän "epätavanomaisen paikan" lisäämällä tämän polun
+tähän ennalta määritettyjen polkujen luetteloon.
+
+Zigissä voit lisätä polkuja tähän joukkoon käyttämällä `addLibraryPath()`-menetelmää
+Kohdeobjektin `root_module`-attribuutti.
+Ensin määritit `LazyPath`-objektin, joka sisältää polun, jonka haluat lisätä, ja sitten
+annat tämän objektin syötteenä menetelmälle `addLibraryPath()`, kuten alla olevassa esimerkissä:
+
+```{zig}
+#| eval: false
+const lib_path: std.Build.LazyPath =.{
+   .cwd_relative = "/usr/local/lib/"
+};
+lib.root_module.addLibraryPath(lib_path);
+```
+
+
+
+
+### Lisätään myös polut {#sec-include-paths}
+
+Esiprosessorin hakupolku on suosittu käsite
+C-yhteisö, mutta monet C-ohjelmoijat tuntevat sen myös nimellä "sisällytä polut", koska
+tämän "hakupolun" polut liittyvät C-tiedostoista löytyviin `#include`-lauseisiin.
+
+Sisällyspolut ovat samanlaisia ​​kuin kirjastopolut. Ne ovat joukko ennalta määritettyjä paikkoja tietokoneessasi
+C-kääntäjä etsii tiedostoja rakennusprosessin aikana. Mutta etsimisen sijaan
+kirjastotiedostot, sisällytyspolut ovat paikkoja, joista kääntäjä etsii mukana olevia otsikkotiedostoja
+C-lähdekoodissasi.
+Tästä syystä monet C-ohjelmoijat haluavat kutsua näitä polkuja "esiprosessorin hakupoluiksi".
+Koska otsikkotiedostoja käsitellään käännöksen esikäsittelyvaiheessa
+prosessi.
+
+Joten jokaisen otsikkotiedoston, jonka lisäät C-lähdekoodiisi `#include`-lauseiden kautta, täytyy
+löytyy jostain, ja C-kääntäjä etsii tätä otsikkotiedostoa tässä "sisällytä polut" -joukossa lueteltujen polkujen kautta.
+Sisällytäpolut lisätään rakennusprosessiin `-I`-lipun kautta.
+
+Zigissä voit lisätä uusia polkuja tähän ennalta määritettyyn polkusarjaan käyttämällä `addIncludePath()`-menetelmää
+Kohdeobjektin `root_module`-attribuutti. Tämä menetelmä hyväksyy myös `LazyPath`-objektin syötteenä.
+
+```{zig}
+#| eval: false
+const inc_path: std.Build.LazyPath =.{
+   .path = "./include"
+};
+lib.root_module.addIncludePath(inc_path);
+```

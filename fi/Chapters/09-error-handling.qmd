@@ -1,0 +1,659 @@
+---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+translation:
+  source: Chapters/09-error-handling.qmd
+  source_sha256: 11332802923c077dfef8d05abd5ff37f606b21c9d1d4f583b6391d3ccd14ba11
+  status: complete
+---
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+
+# Virheenkäsittely ja unionit {#sec-error-handling}
+
+Tässä luvussa haluan käsitellä, miten virheenkäsittely tehdään Zigissä.
+Olemme jo lyhyesti oppineet yhden Zigissä käytettävissä olevista strategioista virheiden käsittelyyn,
+eli @sec-main-file esittelemän `try`-avainsanan. Emme ole kuitenkaan vielä oppineet
+muita menetelmiä, kuten `catch`-avainsanaa.
+Haluan käsitellä tässä luvussa myös sitä, miten union-tyyppejä luodaan Zigissä.
+
+## Lisää virheistä Zigissä
+
+Ennen kuin siirrymme siihen, miten virheenkäsittely tehdään, meidän täytyy oppia lisää siitä, mitä virheet ovat Zigissä.
+Virhe on itse asiassa arvo Zigissä [@zigoverview]. Toisin sanoen, kun virhe tapahtuu Zig-ohjelmassasi,
+se tarkoittaa, että jossain Zig-koodipohjassasi luodaan virhearvo.
+Virhearvo on samankaltainen kuin mikä tahansa kokonaislukuarvo, jonka luot Zig-koodissasi.
+Voit ottaa virhearvon ja antaa sen syötteenä funktiolle,
+ja voit myös muuntaa (tai pakottaa) sen erityyppiseksi virhearvoksi.
+
+Tässä on joitakin yhtäläisyyksiä C++:n ja Pythonin poikkeuksiin.
+Koska C++:ssa ja Pythonissa, kun poikkeus tapahtuu `try`-lohkon sisällä,
+voit käyttää `catch`-lohkoa (C++:ssa) tai `except`-lohkoa (Pythonissa)
+kaappaamaan `try`-lohkossa tuotetun poikkeuksen
+ja antamaan sen syötteenä funktioille.
+
+Virhearvoja käsitellään kuitenkin Zigissä hyvin eri tavalla kuin poikkeuksia.
+Ensinnäkin et voi jättää virhearvoja huomiotta Zig-koodissasi. Tämä tarkoittaa, että jos virhearvo
+esiintyy jossain lähdekoodissasi, tämä virhearvo on käsiteltävä nimenomaisesti jollakin tavalla.
+Tämä tarkoittaa myös, että et voi hylätä virhearvoja antamalla ne alaviivalle,
+kuten voisit tehdä tavallisten arvojen ja olioiden kanssa.
+
+Ota alla oleva lähdekoodi esimerkkinä. Tässä yritämme avata tiedoston, jota ei ole
+tietokoneellani, ja seurauksena `openFile()`-funktio palauttaa ilmeisen virhearvon `FileNotFound`.
+Mutta koska annan tämän funktion tuloksen alaviivalle, päädyn
+yrittämään hylätä virhearvon.
+
+`zig`-kääntäjä havaitsee tämän virheen ja tuo esiin käännösvirheen,
+joka kertoo, että yritän hylätä virhearvon.
+Se lisää myös huomautusviestin, joka ehdottaa `try`-,
+`catch`- tai if-lauseen käyttöä virhearvon nimenomaisessa käsittelyssä.
+Tämä huomautus vahvistaa, että jokainen mahdollinen virhearvo on käsiteltävä nimenomaisesti Zigissä.
+
+
+```{zig}
+#| eval: false
+#| auto_main: true
+#| build_type: "run"
+const cwd = std.Io.Dir.cwd();
+_ = cwd.openFile(
+    init.io, "doesnt_exist.txt", .{ .mode = .write_only }
+);
+```
+
+```
+t.zig:8:17: error: error set is discarded
+t.zig:8:17: note: consider using 'try', 'catch', or 'if'
+```
+
+
+### Virheiden palauttaminen funktioista
+
+Kuten kuvasimme @sec-main-file, kun meillä on funktio, joka saattaa palauttaa virhearvon,
+tämä funktio sisältää yleensä huutomerkin (`!`) palautustyypin
+huomautuksessa. Tämän huutomerkin läsnäolo osoittaa, että tämä funktio saattaa
+palauttaa virhearvon tuloksena, ja `zig`-kääntäjä pakottaa sinut aina käsittelemään nimenomaisesti
+tapauksen, jossa tämä funktio palauttaa virhearvon.
+
+Katso alla olevaa `print_name()`-funktiota. Tämä funktio saattaa palauttaa virheen `stdout.print()`-funktiokutsussa,
+ja seurauksena sen palautustyyppi (`!void`) sisältää huutomerkin.
+
+```{zig}
+#| eval: false
+fn print_name(stdout: *std.Io.Writer) !void {
+    try stdout.print("My name is Pedro!", .{});
+    try stdout.flush();
+}
+```
+
+Yllä olevassa esimerkissä käytämme huutomerkkiä kertoaksemme `zig`-kääntäjälle,
+että tämä funktio saattaa palauttaa jonkin virheen. Mutta mikä virhe tarkalleen palautetaan
+tästä funktiosta? Toistaiseksi emme määrittele tiettyä virhearvoa. Toistaiseksi
+tiedämme vain, että jokin virhearvo (mikä tahansa se onkin) saattaa palautua.
+
+Mutta itse asiassa voit (halutessasi) määritellä selvästi, mitkä tarkat virhearvot
+saattavat palautua tästä funktiosta. Zigin standardikirjastossa on paljon esimerkkejä
+tästä. Ota esimerkiksi tämä `fill()`-funktio
+`http.Client`-moduulista. Tämä funktio palauttaa
+joko virhearvon tyypiltään `ReadError` tai `void`.
+
+```{zig}
+#| eval: false
+pub fn fill(conn: *Connection) ReadError!void {
+    // The body of this function ...
+}
+```
+
+Tämä ajatus määritellä tarkat virhearvot, joita odotat funktion palauttavan,
+on mielenkiintoinen. Koska ne muodostuvat automaattisesti eräänlaiseksi dokumentaatioksi
+funktiollesi, ja myös tämä antaa `zig`-kääntäjälle mahdollisuuden suorittaa lisätarkistuksia
+koodisi yli. Koska kääntäjä voi tarkistaa, tuottaako funktiosi sisällä jotain muuta virhearvotyyppiä,
+jota ei ole otettu huomioon tässä palautustyypin huomautuksessa.
+
+Joka tapauksessa voit listata virhetyypit, joita funktio voi palauttaa,
+listaamalla ne huutomerkin vasemmalle puolelle. Sillä välin kelvolliset arvot
+pysyvät huutomerkin oikealla puolella. Syntaksimuoto on siis:
+
+```
+<error-value>!<valid-value>
+```
+
+
+### Virhejoukot
+
+Entä jos meillä on yksi funktio, joka saattaa palauttaa erityyppisiä virheitä?
+Kun sinulla on tällainen funktio, voit listata
+kaikki nämä eri virhetyypit, joita funktio voi palauttaa,
+Zigin rakenteen avulla, jota kutsumme *virhejoukoksi*.
+
+Virhejoukko on union-tyypin erikoistapaus. Se on union, joka sisältää virhearvoja.
+Kaikissa ohjelmointikielissä ei ole käsitettä "union-olio".
+Yhteenvetona union on vain joukko datatyyppejä.
+Unioneja käytetään sallimaan oliolla useita datatyyppejä.
+Esimerkiksi union `x`:stä, `y`:stä ja `z`:stä tarkoittaa, että
+olio voi olla joko tyyppiä `x`, tyyppiä `y` tai tyyppiä `z`.
+
+Käsittelemme unioneja tarkemmin @sec-unions.
+Mutta voit kirjoittaa virhejoukon kirjoittamalla avainsanan `error` ennen
+aaltosulkeita, ja sitten listaat virhearvot, jotka voidaan
+palauttaa funktiosta, näiden aaltosulkujen sisään.
+
+Ota alla oleva `resolvePath()`-funktio esimerkkinä, joka tulee Zigin standardikirjaston
+`introspect.zig`-moduulista. Näemme sen palautustyypin huomautuksesta, että tämä
+funktio palauttaa joko: 1) kelvollisen `u8`-arvojen viipaleen (`[]u8`); tai 2) yhden kolmesta eri
+virhearvotyypistä, jotka on listattu virhejoukkoon (`OutOfMemory`, `Unexpected` jne.).
+Tämä on virhejoukon käyttöesimerkki.
+
+
+```{zig}
+#| eval: false
+pub fn resolvePath(
+    ally: mem.Allocator,
+    p: []const u8,
+) error{
+    OutOfMemory,
+    CurrentWorkingDirectoryUnlinked,
+    Unexpected,
+}![]u8 {
+    // The body of the function ...
+}
+```
+
+
+Tämä on kelvollinen tapa merkitä Zig-funktion palautusarvo. Mutta jos selaat
+Zigin standardikirjastoa muodostavia moduuleja, huomaat, että useimmissa tapauksissa
+ohjelmoijat mieluummin antavat tälle virhejoukolle kuvaavan nimen ja käyttävät sitten tätä nimeä (tai tätä "tunnistetta")
+virhejoukon palautustyypin huomautuksessa sen sijaan, että käyttäisivät virhejoukkoa suoraan.
+
+Näemme tämän aiemmin esittelemässämme `ReadError`-virhejoukossa `fill()`-funktiossa,
+joka on määritelty `http.Client`-moduulissa.
+Joten kyllä, esittelin `ReadError`-virheen kuin se olisi vain tavallinen ja yksittäinen virhearvo, mutta itse asiassa
+se on `http.Client`-moduulissa määritelty virhejoukko, ja siksi se itse asiassa edustaa
+joukkoa eri virhearvoja, joita saattaa tapahtua `fill()`-funktiossa.
+
+
+Katso alla oleva `ReadError`-määrittely. Huomaa, että ryhmittelemme kaikki nämä
+eri virhearvot yhdeksi olioksi, ja käytämme sitten tätä oliota funktion palautustyypin huomautuksessa.
+Kuten aiemmin esittelemässämme `fill()`-funktiossa, tai `readvDirect()`-funktiossa samasta moduulista,
+joka on toistettu alla.
+
+```{zig}
+#| eval: false
+pub const ReadError = error{
+    TlsFailure,
+    TlsAlert,
+    ConnectionTimedOut,
+    ConnectionResetByPeer,
+    UnexpectedReadFailure,
+    EndOfStream,
+};
+// Some lines of code
+pub fn readvDirect(
+        conn: *Connection,
+        buffers: []std.posix.iovec
+    ) ReadError!usize {
+    // The body of the function ...
+}
+```
+
+Joten virhejoukko on vain kätevä tapa ryhmitellä joukko
+mahdollisia virhearvoja yhdeksi olioksi tai yhdeksi virhearvotyypiksi.
+
+
+### Virhearvojen muuntaminen
+
+Oletetaan, että sinulla on kaksi eri virhejoukkoa, nimeltä `A` ja `B`.
+Jos virhejoukko `A` on virhejoukon `B` ylijoukko, voit muuntaa (tai pakottaa)
+virhearvot joukosta `B` virhearvoiksi joukossa `A`.
+
+Virhejoukot ovat vain joukko virhearvoja. Joten jos virhejoukko `A`
+sisältää kaikki virhejoukon `B` virhearvot, `A`
+muuttuu joukon `B` ylijoukoksi. Voit myös sanoa,
+että virhejoukko `B` on virhejoukon `A` osajoukko.
+
+Alla oleva esimerkki havainnollistaa tätä ajatusta. Koska `A` sisältää kaikki
+arvot joukosta `B`, `A` on joukon `B` ylijoukko.
+Matemaattisessa merkinnässä sanoisimme, että $A \supset B$.
+Seurauksena voimme antaa virhearvon joukosta `B` syötteenä `cast()`-funktiolle
+ja muuntaa tämän syötteen implisiittisesti samaksi virhearvoksi, mutta joukosta `A`.
+
+
+```{zig}
+#| build_type: "test"
+const std = @import("std");
+const A = error{
+    ConnectionTimeoutError,
+    DatabaseNotFound,
+    OutOfMemory,
+    InvalidToken,
+};
+const B = error {
+    OutOfMemory,
+};
+
+fn cast(err: B) A {
+    return err;
+}
+
+test "coerce error value" {
+    const error_value = cast(B.OutOfMemory);
+    try std.testing.expect(
+        error_value == A.OutOfMemory
+    );
+}
+```
+
+
+## Miten virheitä käsitellään
+
+Nyt kun olemme oppineet lisää siitä, mitä virheet ovat Zigissä,
+käsitellään käytettävissä olevia strategioita näiden virheiden käsittelyyn,
+jotka ovat:
+
+- `try`-avainsana;
+- `catch`-avainsana;
+- if-lause;
+- `errdefer`-avainsana.
+
+
+
+### Mitä `try` tarkoittaa?
+
+Kuten kuvasin edellisissä osioissa, kun sanomme, että lauseke saattaa
+palauttaa virheen, viittaamme käytännössä lausekkeeseen, jonka
+palautustyyppi on muodossa `!T`.
+`!` osoittaa, että tämä lauseke palauttaa joko virhearvon tai arvon tyypiltään `T`.
+
+@sec-main-file esittelin `try`-avainsanan ja sen käyttöpaikat.
+En kuitenkaan puhunut siitä, mitä tämä avainsana tekee koodillesi,
+eli toisin sanoen en ole vielä selittänyt, mitä `try` tarkoittaa koodissasi.
+
+Pohjimmiltaan, kun käytät `try`-avainsanaa lausekkeessa, kerrot
+`zig`-kääntäjälle seuraavaa: "Hei! Suorita tämä lauseke puolestani,
+ja jos tämä lauseke palauttaa virheen, palauta tämä virhe puolestani
+ja lopeta ohjelmani suoritus. Mutta jos tämä lauseke palauttaa kelvollisen
+arvon, palauta tämä arvo ja jatka eteenpäin".
+
+Toisin sanoen `try`-avainsana on pohjimmiltaan strategia siirtyä paniikkitilaan ja lopettaa
+ohjelmasi suoritus, jos virhe tapahtuu.
+`try`-avainsanalla kerrot `zig`-kääntäjälle, että ohjelmasi suorituksen lopettaminen
+on järkevin strategia, jos virhe tapahtuu
+kyseisessä lausekkeessa.
+
+### `catch`-avainsana
+
+Hyvä, nyt kun ymmärrämme kunnolla, mitä `try` tarkoittaa, käsitellään nyt `catch`.
+Yksi tärkeä yksityiskohta on, että voit käyttää `try`- tai `catch`-avainsanaa virheidesi käsittelyyn,
+mutta **et voi käyttää `try`- ja `catch`-avainsanoja yhdessä**. Toisin sanoen `try` ja `catch`
+ovat erilaisia ja täysin erillisiä strategioita Zig-kielessä.
+
+Tämä on epätavallista ja erilaista kuin monissa muissa kielissä. Useimmat
+ohjelmointikielet, jotka omaksuvat *try catch* -mallin (kuten C++, R, Python, Javascript jne.), käyttävät yleensä
+näitä kahta avainsanaa yhdessä muodostaakseen täydellisen logiikan
+virheiden asianmukaiseen käsittelyyn.
+Joka tapauksessa Zig kokeilee erilaista lähestymistapaa *try catch* -mallissa.
+
+Olemme siis jo oppineet, mitä `try` tarkoittaa, ja tiedämme myös, että sekä
+`try` että `catch` tulisi käyttää erikseen, toisistaan erillään. Mutta
+mitä `catch` tekee Zigissä? `catch`-avainsanalla voimme rakentaa lohkon
+logiikkaa virhearvon käsittelyyn, jos se tapahtuu nykyisessä lausekkeessa.
+
+Katso alla olevaa koodiesimerkkiä. Palaamme jälleen aiempaan
+esimerkkiin, jossa yritimme avata tiedoston, jota ei ole tietokoneellani,
+mutta tällä kertaa käytän `catch`-avainsanaa toteuttaakseni logiikan virheen käsittelyyn sen sijaan, että
+lopettaisin suorituksen heti.
+
+Tarkemmin sanottuna tässä esimerkissä käytän logger-oliota tallentamaan lokeja
+järjestelmään, ennen kuin palautan virheen ja lopetan ohjelman suorituksen. Esimerkiksi
+tämä voisi olla osa monimutkaisen järjestelmän koodipohjaa, johon minulla ei ole täyttä kontrollia,
+ja haluan tallentaa nämä lokit ennen ohjelman kaatumista, jotta voin debugata sen myöhemmin
+(esim. en ehkä voi kääntää koko ohjelmaa ja debugata sitä kunnolla debuggerilla. Joten nämä lokit saattavat
+olla kelvollinen strategia tämän esteen ohittamiseen).
+
+```{zig}
+#| eval: false
+pub fn main(init: std.process.Init) !void {
+    const cwd = std.Io.Dir.cwd();
+    const file = cwd.openFile(
+        init.io, "doesnt_exist.txt", .{}
+    ) catch |err| {
+        logger.record_context();
+        logger.log_error(err);
+        return err;
+    };
+}
+```
+
+
+Siksi käytämme `catch`-avainsanaa luodaksemme lausekelohkon, joka käsittelee virheen.
+Voin palauttaa virhearvon tästä lausekelohkosta, kuten tein yllä olevassa esimerkissä,
+mikä saa ohjelman siirtymään paniikkitilaan ja lopettamaan suorituksen.
+Mutta voisin myös palauttaa kelvollisen arvon tästä koodilohkosta, joka
+tallennettaisiin `file`-olioon.
+
+Huomaa, että sen sijaan, että kirjoittaisimme avainsanan ennen lauseketta, joka saattaa palauttaa virheen,
+kuten teemme `try`-avainsanan kanssa, kirjoitamme `catch`-avainsanan lausekkeen jälkeen. Voimme avata putkiparit (`|`),
+jotka kaappaavat lausekkeen palauttaman virhearvon ja tekevät
+tämän virhearvon saataville `catch`-lohkon laajuudessa objektina nimeltä `err`.
+Toisin sanoen, koska kirjoitin `|err|` koodiin, voin käyttää lausekkeen
+palauttamaa virhearvoa `err`-olion avulla.
+
+Vaikka tämä on yleisin `catch`-avainsanan käyttö, voit käyttää tätä avainsanaa myös
+virheen käsittelyyn "oletusarvo"-tyyliin. Eli jos lauseke palauttaa
+virheen, käytämme oletusarvoa sen sijaan. Muussa tapauksessa käytämme lausekkeen palauttamaa kelvollista arvoa.
+
+Zigin virallinen kieliviite tarjoaa loistavan esimerkin tästä "oletusarvo"-strategiasta
+`catch`-avainsanan kanssa. Tämä esimerkki on toistettu alla. Huomaa, että yritämme jäsentää
+jonkin etumerkittömän kokonaisluvun merkkijonosta nimeltä `str`. Toisin sanoen tämä funktio
+yrittää muuntaa objektin tyypiltään `[]const u8` (eli merkkitaulukko, merkkijono jne.)
+objektiksi tyypiltään `u64`.
+
+Mutta tämä `parseU64()`-funktion suorittama jäsennysprosessi saattaa epäonnistua, mikä johtaa ajonaikaiseen virheeseen.
+Tässä esimerkissä käytetty `catch`-avainsana tarjoaa vaihtoehtoisen arvon (13) käytettäväksi tapauksessa,
+jossa tämä `parseU64()`-funktio nostaa virheen. Joten alla oleva lauseke tarkoittaa pohjimmiltaan:
+"Hei! Jäsennä tämä merkkijono `u64`:ksi puolestani ja tallenna tulokset
+`number`-olioon. Mutta jos virhe tapahtuu, käytä arvoa `13` sen sijaan".
+
+```{zig}
+#| eval: false
+const number = parseU64(str, 10) catch 13;
+```
+
+Joten tämän prosessin lopussa `number`-olio sisältää joko `u64`-kokonaisluvun,
+joka jäsennettiin onnistuneesti syötemerkkijonosta `str`, tai jos virhe tapahtuu
+jäsennysprosessissa, se sisältää `u64`-arvon `13`, jonka `catch`-avainsana tarjosi
+"oletus-" tai "vaihtoehtoisena" arvona.
+
+
+
+### If-lauseiden käyttö
+
+Voit myös käyttää if-lauseita virheiden käsittelyyn Zig-koodissasi.
+Alla olevassa esimerkissä toistan aiemman esimerkin, jossa
+yritämme jäsentää kokonaislukuarvon syötemerkkijonosta funktiolla
+nimeltä `parseU64()`.
+
+Suoritamme lausekkeen "if"-kohdassa. Jos tämä lauseke palauttaa
+virhearvon, if-lauseen "if-haaraa" (tai "tosihaaraa") ei suoriteta.
+Mutta jos tämä lauseke palauttaa sen sijaan kelvollisen arvon, tämä arvo puretaan
+`number`-olioon.
+
+Tämä tarkoittaa, että jos `parseU64()`-lauseke palauttaa kelvollisen arvon, tämä arvo tulee saataville
+tämän "if-haaran" (eli "tosihaaran") laajuudessa putkiparien (`|`) sisällä listatun objektin kautta,
+joka on `number`-olio.
+
+Jos virhe tapahtuu, voimme käyttää if-lauseen "else-haaraa" (tai "epätosihaaraa")
+virheen käsittelyyn. Alla olevassa esimerkissä käytämme if-lauseen `else`-haaraa
+puraaksemme virhearvon (jonka `parseU64()` palautti) `err`-olioon
+ja käsitelläksemme virheen.
+
+```{zig}
+#| eval: false
+if (parseU64(str, 10)) |number| {
+    // do something with `number` here
+} else |err| {
+    // handle the error value.
+}
+```
+
+Nyt, jos suorittamasi lauseke palauttaa erityyppisiä virhearvoja,
+ja haluat tehdä eri toimenpiteen kussakin näistä virhearvotyypeistä,
+`try`- ja `catch`-avainsanat sekä if-lausestrategia muuttuvat rajoittuneiksi.
+
+Tällaiseen tilanteeseen kielen virallinen dokumentaatio ehdottaa
+switch-lauseen käyttöä yhdessä if-lauseen kanssa [@zigdocs].
+Perusajatus on käyttää if-lausetta lausekkeen suorittamiseen ja
+käyttää "else-haaraa" välittääksesi virhearvon switch-lauseelle, jossa
+määrittelet eri toimenpiteen kullekin lausekkeen palauttamalle virhearvotyypille.
+
+Alla oleva esimerkki havainnollistaa tätä ajatusta. Yritämme ensin lisätä (tai rekisteröidä) joukon
+tehtäviä jonoon. Jos tämä "rekisteröintiprosessi" onnistuu, yritämme sitten
+jakaa nämä tehtävät järjestelmämme työntekijöille. Mutta
+jos tämä "rekisteröintiprosessi" palauttaa virhearvon, käytämme switch-lausetta
+"else-haarassa" käsitelläksemme jokaisen mahdollisen virhearvon.
+
+```{zig}
+#| eval: false
+if (add_tasks_to_queue(&queue, tasks)) |_| {
+    distribute_tasks(&queue);
+} else |err| switch (err) {
+    error.InvalidTaskName => {
+        // do something
+    },
+    error.TimeoutTooBig => {
+        // do something
+    },
+    error.QueueNotFound => {
+        // do something
+    },
+    // and all the other error options ...
+}
+```
+
+
+### `errdefer`-avainsana {#sec-errdefer2}
+
+Yleinen malli C-ohjelmissa yleisesti on vapauttaa resursseja, kun virhe tapahtuu
+ohjelman suorituksen aikana. Toisin sanoen yksi yleinen tapa käsitellä virheitä on suorittaa
+"siivoustoimenpiteitä" ennen ohjelman poistumista. Tämä takaa, että ajonaikainen virhe ei saa
+ohjelmaa vuotamaan järjestelmän resursseja.
+
+
+`errdefer`-avainsana on työkalu tällaisten "siivoustoimenpiteiden" suorittamiseen vaikeissa tilanteissa.
+Tätä avainsanaa käytetään yleisesti siivoamaan (tai vapauttamaan) varattuja resursseja, ennen kuin ohjelman suoritus
+pysähtyy virhearvon luomisen vuoksi.
+
+Perusajatus on antaa lauseke `errdefer`-avainsanalle. Sitten
+`errdefer` suorittaa tämän lausekkeen, jos ja vain jos virhe tapahtuu
+nykyisen laajuuden suorituksen aikana.
+Alla olevassa esimerkissä käytämme allokaattorioliota (jonka esittelimme @sec-allocators),
+luodaksemme uuden `User`-olion. Jos onnistumme luomaan ja rekisteröimään tämän uuden käyttäjän,
+tämä `create_user()`-funktio palauttaa tämän uuden `User`-olion palautusarvonaan.
+
+Jos kuitenkin jostain syystä jokin lauseke `errdefer`-rivin jälkeen tuottaa virhearvon,
+esimerkiksi lausekkeessa `db.add(user)`, `errdefer`-avainsanan rekisteröimä lauseke suoritetaan ennen kuin virhearvo palautetaan
+funktiosta ja ennen kuin ohjelma siirtyy paniikkitilaan ja pysäyttää
+nykyisen suorituksen.
+
+
+```{zig}
+#| eval: false
+fn create_user(db: Database, allocator: Allocator) !User {
+    const user = try allocator.create(User);
+    errdefer allocator.destroy(user);
+
+    // Register new user in the Database.
+    _ = try db.register_user(user);
+    return user;
+}
+```
+
+Käyttämällä `errdefer`-avainsanaa tuhoamaan juuri luomamme `user`-olion
+varmistamme, että tälle `user`-oliolle varattu muisti
+vapautetaan, ennen kuin ohjelman suoritus pysähtyy.
+Koska jos lauseke `try db.add(user)` palauttaa virhearvon,
+ohjelman suoritus pysähtyy, ja menetämme kaikki viitteet ja kontrollin muistin yli,
+jonka olemme varanneet `user`-oliolle.
+Seurauksena, jos emme vapauta `user`-olioon liittyvää muistia ennen ohjelman pysähtymistä,
+emme voi enää vapauttaa tätä muistia. Menetämme yksinkertaisesti mahdollisuutemme tehdä oikein.
+Siksi `errdefer` on olennainen tässä tilanteessa.
+
+Selkeyden vuoksi erot `defer`- ja `errdefer`-avainsanojen välillä
+(jotka kuvasin @sec-defer ja @sec-errdefer1), saattaa olla syytä
+käsitellä aihetta hieman tarkemmin. Saatat vielä miettiä
+"miksi käyttää `errdefer`-avainsanaa, jos voimme käyttää `defer`-avainsanaa sen sijaan?".
+
+Vaikka ne ovat samankaltaisia, keskeinen ero `errdefer`- ja `defer`-avainsanojen välillä
+on se, milloin annettu lauseke suoritetaan.
+`defer`-avainsana suorittaa aina annetun lausekkeen nykyisen
+laajuuden lopussa, riippumatta siitä, miten koodisi poistuu tästä laajuudesta.
+Sitä vastoin `errdefer` suorittaa annetun lausekkeen vain, kun virhe tapahtuu
+nykyisessä laajuudessa.
+
+Tämä muuttuu tärkeäksi, jos resurssi, jonka varaat
+nykyisessä laajuudessa, vapautetaan myöhemmin koodissasi eri laajuudessa.
+`create_user()`-funktiot ovat esimerkki tästä. Jos ajattelet
+tätä funktiota tarkasti, huomaat, että tämä funktio palauttaa
+`user`-olion tuloksena.
+
+Toisin sanoen `user`-oliolle varattua muistia ei vapauteta
+`create_user()`-funktion sisällä, jos se palautuu onnistuneesti.
+Joten jos virhe ei tapahdu tämän funktion sisällä, `user`-olio
+palautetaan funktiosta, ja todennäköisesti tämän `create_user()`-funktion
+jälkeen suoritettava koodi on vastuussa `user`-olion
+muistin vapauttamisesta.
+
+Mutta entä jos virhe tapahtuu `create_user()`-funktion sisällä? Mitä tapahtuu silloin?
+Tämä tarkoittaisi, että koodisi suoritus pysähtyisi tässä `create_user()`-funktiossa,
+ja seurauksena tämän `create_user()`-funktion jälkeen suoritettava koodi
+ei yksinkertaisesti suorittuisi, ja tuloksena `user`-olion muistia
+ei vapautettaisi ennen ohjelman pysähtymistä.
+
+Tämä on täydellinen skenaario `errdefer`-avainsanalle. Käytämme tätä avainsanaa taataksemme,
+että ohelmamme vapauttaa `user`-oliolle varatun muistin,
+vaikka virhe tapahtuisi `create_user()`-funktion sisällä.
+
+Jos varaat ja vapautat muistia oliolle samassa laajuudessa, käytä
+vain `defer`-avainsanaa ja ole tyytyväinen, eli `errdefer`-avainsanalla ei ole käyttöä sinulle tällaisessa tilanteessa.
+Mutta jos varaat muistia laajuudessa A, mutta vapautat tämän muistin
+vasta myöhemmin, esimerkiksi laajuudessa B, `errdefer`-avainsanasta tulee hyödyllinen muistivuotojen välttämiseksi
+epävarmoissa tilanteissa.
+
+
+
+## Union-tyyppi Zigissä {#sec-unions}
+
+Union-tyyppi määrittelee joukon tyyppejä, joita olio voi olla. Se on kuin lista
+vaihtoehdoista. Jokainen vaihtoehto on tyyppi, jonka olio voi omaksua. Siksi unionit Zigissä
+ovat saman merkityksen tai saman roolin kuin unionit C:ssä. Niitä käytetään samaan tarkoitukseen.
+Voit myös sanoa, että unionit Zigissä tuottavat samanlaisen vaikutuksen kuin
+[Pythonin `typing.Union`-tyypin käyttö](https://docs.python.org/3/library/typing.html#typing.Union)[^pyunion].
+
+[^pyunion]: <https://docs.python.org/3/library/typing.html#typing.Union>
+
+Esimerkiksi saatat luoda API:n, joka lähettää dataa datajärvellä, joka on isännöity
+jossain yksityisessä pilvi-infrastruktuurissa. Oletetaan, että olet luonut eri structeja koodipohjaasi
+tallentaaksesi tarvittavat tiedot, joita tarvitset yhdistääksesi
+kunkin valtavirran datajärvipalvelun palveluihin (Amazon S3, Azure Blob jne.).
+
+Oletetaan nyt, että sinulla on myös funktio nimeltä `send_event()`, joka vastaanottaa tapahtuman syötteenä
+ja kohdedatajärven, ja se lähettää syötetapahtuman kohdeargumentissa määriteltyyn datajärveen.
+Mutta tämä kohdedatajärvi voi olla mikä tahansa kolmesta valtavirran datajärvipalvelusta
+(Amazon S3, Azure Blob jne.). Tässä union voi auttaa.
+
+Alla määritelty union `LakeTarget` sallii `send_event()`-funktion `lake_target`-argumentin
+olla joko tyyppiä `AzureBlob`, tyyppiä `AmazonS3` tai tyyppiä `GoogleGCP`.
+Tämä union sallii `send_event()`-funktion vastaanottaa minkä tahansa näistä kolmesta tyypistä
+syötteenä `lake_target`-argumentissa.
+
+Muista, että jokainen näistä kolmesta tyypistä (`AmazonS3`, `GoogleGCP` ja `AzureBlob`)
+on erillinen struct, jonka olemme määritelleet lähdekoodissamme. Joten ensi silmäyksellä
+ne ovat erillisiä datatyyppejä lähdekoodissamme. Mutta `union`-avainsana
+yhdistää ne yhdeksi datatyypiksi nimeltä `LakeTarget`.
+
+```{zig}
+#| eval: false
+const LakeTarget = union {
+    azure: AzureBlob,
+    amazon: AmazonS3,
+    google: GoogleGCP,
+};
+
+fn send_event(
+    event: Event,
+    lake_target: LakeTarget
+) bool {
+    // body of the function ...
+}
+```
+
+Union-määrittely koostuu datalistasta. Jokainen datajäsen on tiettyä datatyyppiä.
+Yllä olevassa esimerkissä `LakeTarget`-unionilla on kolme datajäsentä (`azure`, `amazon`, `google`).
+Kun luot olion, joka käyttää union-tyyppiä, voit käyttää vain yhtä sen datajäsenistä
+tässä instanssoinnissa.
+
+Voit myös tulkita tämän niin, että vain yksi union-tyypin datajäsen voi olla aktiivinen kerrallaan, muut datajäsenet
+pysyvät deaktivoituina ja käyttämättöminä. Esimerkiksi jos luot `LakeTarget`-olion, joka käyttää
+`azure`-datajäsentä, et voi enää käyttää tai käyttää datajäseniä `google` tai `amazon`.
+On kuin näitä muita datajäseniä ei olisi lainkaan olemassa `LakeTarget`-tyypissä.
+
+Näet tämän logiikan alla olevassa esimerkissä. Huomaa, että instansoimme ensin union-olion
+käyttämällä `azure`-datajäsentä. Seurauksena tämä `target`-olio sisältää vain
+`azure`-datajäsenen sisällään. Vain tämä datajäsen on aktiivinen tässä oliossa.
+Siksi tämän koodiesimerkin viimeinen rivi on virheellinen. Koska yritämme instansoida datajäsentä
+`google`, joka on tällä hetkellä epäaktiivinen tälle `target`-oliolle, ja seurauksena ohjelma
+siirtyy paniikkitilaan varoittaen meitä tästä virheestä kovan virheilmoituksen kautta.
+
+```{zig}
+#| eval: false
+var target = LakeTarget {
+    .azure = AzureBlob.init()
+};
+// Only the `azure` data member exist inside
+// the `target` object, and, as a result, this
+// line below is invalid:
+target.google = GoogleGCP.init();
+```
+
+```
+thread 2177312 panic: access of union field 'google' while
+    field 'azure' is active:
+    target.google = GoogleGCP.init();
+          ^
+```
+
+Joten kun instansoit union-olion, sinun täytyy valita yksi union-tyypissä listatuista datatyypeistä (tai datajäsenistä).
+Yllä olevassa esimerkissä valitsin käyttää `azure`-datajäsentä, ja seurauksena
+kaikki muut datajäsenet deaktivoituivat automaattisesti,
+etkä voi enää käyttää niitä instansoinnin jälkeen.
+
+Voit aktivoida toisen datajäsenen määrittelemällä koko enum-olion uudelleen.
+Alla olevassa esimerkissä käytän aluksi `azure`-datajäsentä. Mutta sitten määritän
+`target`-olion uudelleen käyttämään uutta `LakeTarget`-oliota, joka käyttää `google`-datajäsentä.
+
+```{zig}
+#| eval: false
+var target = LakeTarget {
+    .azure = AzureBlob.init()
+};
+target = LakeTarget {
+    .google = GoogleGCP.init()
+};
+```
+
+Mielenkiintoinen fakta union-tyypeistä on, että aluksi et voi käyttää niitä switch-lauseissa (jotka esiteltiin @sec-switch).
+Toisin sanoen, jos sinulla on esimerkiksi olio tyyppiä `LakeTarget`, et voi antaa tätä oliota
+syötteenä switch-lauseelle.
+
+Mutta entä jos sinun todella täytyy tehdä niin? Entä jos sinun täytyy
+antaa "union-olio" syötteenä switch-lauseelle? Vastaus tähän kysymykseen perustuu toiseen erityistyyppiin Zigissä,
+jotka ovat *tagged unionit*. Luodaksesi tagged unionin, sinun tarvitsee vain lisätä
+enum-tyyppi union-määrittelyysi.
+
+Esimerkkinä tagged unionista Zigissä ota alla esitetty `Registry`-tyyppi. Tämä tyyppi tulee Zig-repositorion
+[`grammar.zig`-moduulista](https://codeberg.org/ziglang/zig/src/branch/master/tools/spirv/grammar.zig)[^grammar].
+Tämä union-tyyppi listaa erityyppisiä rekisterejä.
+Mutta huomaa tällä kertaa `(enum)`-käyttö `union`-avainsanan jälkeen. Tämä tekee
+tästä union-tyypistä tagged unionin. Koska se on tagged union, `Registry`-tyypin olio
+voidaan antaa syötteenä switch-lauseelle. Tämä on kaikki mitä sinun täytyy tehdä. Lisää vain `(enum)`
+`union`-määrittelyysi, ja voit käyttää sitä switch-lauseissa.
+
+[^grammar]: <https://codeberg.org/ziglang/zig/src/branch/master/tools/spirv/grammar.zig>.
+
+```{zig}
+#| eval: false
+pub const Registry = union(enum) {
+    core: CoreRegistry,
+    extension: ExtensionRegistry,
+};
+```

@@ -1,0 +1,604 @@
+---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+translation:
+  source: Chapters/14-zig-c-interop.qmd
+  source_sha256: 4e09ffe76aa957c1ca110f0e26580ad070c3e3b4144aac5658cbc336b697fcf7
+  status: complete
+---
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+
+# Zigin yhteensopivuus C:n kanssa
+
+Tässä luvussa käsittelemme Zigin yhteensopivuutta C:n kanssa.
+Olemme jo käsitelleet @sec-building-c-code-osiossa, miten voit käyttää `zig`-kääntäjää C-koodin rakentamiseen.
+Emme ole kuitenkaan vielä käsitelleet sitä, miten C-koodia käytetään Zigissä. Toisin sanoen
+emme ole vielä käsitelleet sitä, miten C-koodia kutsutaan ja käytetään Zigistä.
+
+Tämä on tämän luvun pääaihe.
+Lisäksi seuraavassa pienessä projektissamme tässä kirjassa käytämme C-kirjastoa.
+Seurauksena sovellamme käytäntöön paljon tässä luvussa käsiteltyä tietoa
+seuraavassa projektissa.
+
+
+## Miten C-koodia kutsutaan Zigistä
+
+Yhteensopivuus C:n kanssa ei ole uutta. Useimmilla korkean tason ohjelmointikielillä on FFI (*foreign function interface*),
+jota voidaan käyttää C-koodin kutsumiseen. Esimerkiksi Pythonissa on Cython, R:ssä `.Call()`, Javascriptissä `ccall()` jne.
+Zig integroituu kuitenkin C:hen syvemmällä tasolla, mikä vaikuttaa paitsi siihen, miten C-koodia kutsutaan, myös siihen,
+miten tämä C-koodi käännetään ja sisällytetään Zig-projektiisi.
+
+Yhteenvetona: Zigillä on erinomainen yhteensopivuus C:n kanssa. Jos haluat kutsua mitä tahansa C-koodia Zigistä,
+sinun täytyy suorittaa seuraavat vaiheet:
+
+- tuoda C-otsikkotiedosto Zig-koodiisi.
+- linkittää Zig-koodisi C-kirjastoon.
+
+
+### Strategiat C-otsikkotiedostojen tuomiseen {#sec-strategy-c}
+
+C-koodin käyttö Zigissä edellyttää aina yllä mainittujen kahden vaiheen suorittamista. Kun
+puhumme kuitenkin erityisesti ensimmäisestä vaiheesta, on tällä hetkellä kaksi
+eri tapaa suorittaa tämä ensimmäinen vaihe:
+
+- kääntää C-otsikkotiedosto Zig-koodiksi `zig translate-c` -komennolla ja tuoda ja käyttää sitten käännettyä Zig-koodia.
+- tuoda C-otsikkotiedosto suoraan Zig-moduuliisi `@cImport()`-sisäänrakennetun funktion kautta.
+
+Jos et tunne `translate-c`-komentoa, se on `zig`-kääntäjän alikomento, joka ottaa C-tiedostoja
+syötteeksi ja tuottaa näissä C-tiedostoissa olevan C-koodin Zig-esityksen.
+Toisin sanoen tämä alikomento toimii kuin transpilaattori. Se ottaa C-koodin ja kääntää sen
+vastaavaksi Zig-koodiksi.
+
+Voisi olla ok tulkita `translate-c` työkaluksi, joka generoi Zig-sidokset
+C-koodiin, samalla tavalla kuin `rust-bindgen`[^bindgen]-työkalu generoi Rust FFI -sidokset C-koodiin.
+Mutta se ei olisi tarkka tulkinta `translate-c`:stä. Tämän työkalun idea on
+todella kääntää C-koodi Zig-koodiksi.
+
+[^bindgen]: <https://github.com/rust-lang/rust-bindgen>
+
+Nyt pinnallisesti `@cImport()` verrattuna `translate-c`:hen saattaa vaikuttaa
+kahdelta täysin erilaiselta strategialta. Mutta itse asiassa ne ovat käytännössä täsmälleen sama strategia.
+Sillä `@cImport()`-sisäänrakennettu funktio on oikotie `translate-c`:hen.
+Molemmat työkalut käyttävät samaa "C:stä Zigiin" -käännösfunktionaliteettia. Joten kun käytät `@cImport()`:a,
+pyydät käytännössä `zig`-kääntäjää kääntämään C-otsikkotiedoston Zig-koodiksi ja
+tuomaan tämän Zig-koodin nykyiseen Zig-moduuliisi.
+
+Tällä hetkellä Zig-projektissa on hyväksytty ehdotus siitä, että `@cImport()`
+siirrettäisiin Zigin build-järjestelmään[^cimport-issue]. Jos tämä ehdotus toteutetaan, "käytä `@cImport()`:a"
+-strategia muuttuisi muotoon "kutsu translate C -funktiota Zig-build-skriptissäsi".
+Joten C-koodin kääntäminen Zig-koodiksi siirtyisi
+Zig-projektisi build-skriptiin, ja sinun tarvitsisi vain tuoda käännetty Zig-koodi
+Zig-moduuliisi aloittaaksesi C-koodin kutsumisen Zigistä.
+
+[^cimport-issue]: <https://github.com/ziglang/zig/issues/20630>
+
+Jos mietit tätä ehdotusta hetken, ymmärrät, että kyseessä on itse asiassa
+pieni muutos. Tarkoitan, että logiikka on sama ja vaiheet ovat edelleen käytännössä samat.
+Ainoa ero on, että yksi vaiheista siirtyy Zig-projektisi build-skriptiin.
+
+
+
+### Zig-koodin linkittäminen C-kirjastoon {#sec-linking-c}
+
+Riippumatta siitä, kumman edellisen osion kahdesta strategiasta valitset,
+jos haluat kutsua C-koodia Zigistä, sinun täytyy linkittää Zig-koodisi
+C-kirjastoon, joka sisältää kutsumasi C-koodin.
+
+Toisin sanoen aina kun käytät C-koodia Zig-koodissasi, **tuot riippuvuuden build-prosessiisi**.
+Tämän ei pitäisi yllättää ketään, jolla on kokemusta C:stä ja C++:sta.
+Sillä tämä ei eroa C:stä. Aina kun käytät C-kirjastoa C-koodissasi, sinun täytyy myös
+rakentaa ja linkittää C-koodisi käyttämäsi C-kirjaston kanssa.
+
+Kun käytämme C-kirjastoa Zig-koodissamme, `zig`-kääntäjän täytyy päästä käsiksi Zig-koodissasi kutsuttujen C-funktioiden
+määrittelyihin. Tämän kirjaston C-otsikkotiedosto tarjoaa
+näiden C-funktioiden deklaraatiot, mutta ei niiden määrittelyjä. Jotta pääsisi käsiksi näihin määrittelyihin,
+`zig`-kääntäjän täytyy rakentaa Zig-koodisi ja linkittää se C-kirjastoon build-prosessin aikana.
+
+Kuten olemme käsitelleet @sec-build-system-osiossa, on erilaisia strategioita linkittää jotain kirjastoon.
+Tämä voi tarkoittaa C-kirjaston rakentamista ensin ja sen linkittämistä Zig-koodiin. Tai
+se voi tarkoittaa pelkkää linkitysvaihetta, jos tämä C-kirjasto on jo rakennettu ja
+asennettu järjestelmääsi. Joka tapauksessa, jos sinulla on epäilyksiä tästä, palaa @sec-build-system-osioon.
+
+
+
+## C-otsikkotiedostojen tuominen {#sec-import-c-header}
+
+@sec-strategy-c-osiossa kuvasimme, että tällä hetkellä on kaksi eri polkua,
+joita voit käyttää tuodaksesi C-otsikkotiedoston Zig-moduuleihisi: `translate-c` tai `@cImport()`.
+Tämä osio kuvaa kummankin strategian erikseen tarkemmin.
+
+### Strategia 1: `translate-c`:n käyttö
+
+Kun valitsemme tämän strategian, meidän täytyy ensin käyttää `translate-c`-työkalua kääntääksemme
+C-otsikkotiedostot, joita haluamme käyttää, Zig-koodiksi. Esimerkiksi oletetaan, että haluamme
+käyttää `fopen()`-C-funktiota `stdio.h`-C-otsikkotiedostosta. Voimme kääntää
+`stdio.h`-C-otsikkotiedoston alla olevalla bash-komennolla:
+
+```bash
+zig translate-c /usr/include/stdio.h \
+    -lc -I/usr/include \
+    -D_NO_CRT_STDIO_INLINE=1 > c.zig \
+```
+
+Huomaa, että tässä bash-komennossa annamme tarvittavat kääntäjän liput (`-D` makrojen määrittelyyn,
+`-l` kirjastojen linkittämiseen, `-I` "include path" -polun lisäämiseen) `stdio.h`-otsikkotiedoston kääntämiseen ja käyttöön.
+Huomaa myös, että tallennamme käännösprosessin tulokset Zig-moduuliin nimeltä `c.zig`.
+
+Siksi tämän komennon suorittamisen jälkeen meidän tarvitsee vain tuoda tämä `c.zig`-moduuli ja aloittaa
+C-funktioiden kutsuminen, joita haluat kutsua siitä. Alla oleva esimerkki osoittaa sen.
+On tärkeää muistaa, mitä olemme käsitelleet @sec-linking-c-osiossa. Jotta voit kääntää tämän
+esimerkin, sinun täytyy linkittää tämä koodi `libc`:n kanssa antamalla lippu `-lc` `zig`-kääntäjälle.
+
+```{zig}
+#| eval: false
+const c = @import("c.zig");
+pub fn main() !void {
+    const x: f32 = 1772.94122;
+    _ = c.printf("%.3f\n", x);
+}
+```
+
+```
+1772.941
+```
+
+
+### Strategia 2: `@cImport()`:n käyttö
+
+Tuodaksemme C-otsikkotiedoston Zig-koodiimme voimme käyttää sisäänrakennettuja funktioita `@cInclude()` ja `@cImport()`.
+`@cImport()`-funktion sisällä avaamme lohkon (aaltosulkeilla). Tämän lohkon sisällä
+voimme (tarvittaessa) sisällyttää useita `@cDefine()`-kutsuja määritelläksemme C-makroja, kun sisällytämme tämän tietyn C-otsikkotiedoston.
+Mutta useimmiten tarvitset todennäköisesti vain yhden kutsun tämän lohkon sisällä,
+joka on kutsu `@cInclude()`:lle.
+
+Tämä `@cInclude()`-funktio vastaa C:n `#include`-lausetta.
+Annat `@cInclude()`-funktiolle syötteeksi sisällytettävän C-otsikon nimen,
+ja yhdessä `@cImport()`:n kanssa se suorittaa tarvittavat vaiheet
+sisällyttääkseen tämän C-otsikkotiedoston Zig-koodiisi.
+
+Sinun pitäisi sitoa `@cImport()`:n tulos vakiomuuttujaan, aivan kuten tekisit
+`@import()`:n kanssa. Määrität tuloksen vakiomuuttujaan
+Zig-koodissasi, ja seurauksena kaikki C-funktiot, C-structit, C-makrot jne., jotka on määritelty
+C-otsikkotiedostoissa, ovat saatavilla tämän vakiomuuttujan kautta.
+
+Katso alla olevaa koodiesimerkkiä, jossa tuomme Standard I/O C Libraryn (`stdio.h`)
+ja kutsumme `printf()`[^printf]-C-funktiota. Huomaa, että olemme käyttäneet tässä esimerkissä myös C-funktiota `powf()`[^powf],
+joka tulee C Math Librarystä (`math.h`).
+Jotta voit kääntää tämän esimerkin, sinun täytyy linkittää tämä Zig-koodi sekä
+C-standardikirjastoon että C-matematiikkakirjastoon antamalla liput `-lc` ja `-lm`
+`zig`-kääntäjälle.
+
+[^printf]: <https://cplusplus.com/reference/cstdio/printf/>
+[^powf]: <https://en.cppreference.com/w/c/numeric/math/pow>
+
+
+```{zig}
+#| eval: false
+const c = @cImport({
+    @cDefine("_NO_CRT_STDIO_INLINE", "1");
+    @cInclude("stdio.h");
+    @cInclude("math.h");
+});
+
+pub fn main() !void {
+    const x: f32 = 15.2;
+    const y = c.powf(x, @as(f32, 2.6));
+    _ = c.printf("%.3f\n", y);
+}
+```
+
+```
+1182.478
+```
+
+
+## Zig-arvojen välittämisestä C-funktioille {#sec-zig-obj-to-c}
+
+Zig-objekteilla on joitain olennaisia eroja C-vastineisiinsa verrattuna.
+Todennäköisesti huomattavin on ero C-merkkijonojen ja Zig-merkkijonojen välillä,
+jonka kuvasin @sec-zig-strings-osiossa.
+Zig-merkkijonot ovat objekteja, jotka sisältävät sekä tavutaulukon että pituusarvon.
+Toisaalta C-merkkijono on yleensä vain osoitin nullilla päättyvään tavutaulukkoon.
+
+Näiden olennaisten erojen vuoksi joissakin tapauksissa et voi välittää Zig-objekteja suoraan
+C-funktioiden syötteinä ennen kuin muunnat ne C-yhteensopiviksi arvoiksi. Joissakin muissa tapauksissa
+voit kuitenkin välittää Zig-objekteja ja Zig-literaaliarvoja suoraan C-funktioiden syötteinä,
+ja kaikki toimii hyvin, koska `zig`-kääntäjä hoitaa kaiken puolestasi.
+
+Joten kuvailimme kahta eri skenaariota. Kutsumme niitä "automaattinen muunnos" ja "vaatii muunnoksen".
+"Automaattinen muunnos" -skenaario on tilanne, jossa `zig`-kääntäjä hoitaa kaiken puolestasi ja muuntaa automaattisesti
+Zig-objektisi/arvoisi C-yhteensopiviksi arvoiksi. Sitä vastoin
+"vaatii muunnoksen" -skenaario on tilanne, jossa sinä, ohjelmoija, olet vastuussa Zig-objektin muuntamisesta
+C-yhteensopivaksi arvoksi ennen sen välittämistä C-koodiin.
+
+On myös kolmas skenaario, jota ei kuvata tässä: kun luot C-objektin tai C-structin tai
+C-yhteensopivan arvon Zig-koodissasi ja välität tämän C-objektin/arvon syötteenä C-funktiolle Zig-koodissasi.
+Tämä skenaario kuvataan myöhemmin @sec-c-inputs-osiossa. Tässä osiossa keskitymme skenaarioihin, joissa
+välitämme Zig-objekteja/arvoita C-koodiin, sen sijaan että C-objekteja/arvoita välitettäisiin C-koodiin.
+
+
+### "Automaattinen muunnos" -skenaario
+
+"Automaattinen muunnos" -skenaario on tilanne, jossa `zig`-kääntäjä muuntaa automaattisesti Zig-objektimme
+C-yhteensopiviksi arvoiksi puolestamme. Tämä skenaario tapahtuu pääasiassa kahdessa tilanteessa:
+
+- merkkijonoliteraaliarvojen kanssa;
+- kaikkien @sec-primitive-data-types-osiossa esiteltyjen primitiivisten tietotyyppien kanssa.
+
+Kun ajattelemme toista yllä kuvattua tapausta, `zig`-kääntäjä muuntaa automaattisesti
+kaikki primitiiviset tietotyypit C-vastineisiinsa, koska kääntäjä tietää, miten
+muuntaa `i16` tyypiksi `signed short` tai `u8` tyypiksi `unsigned char` jne.
+Kun ajattelemme merkkijonoliteraaliarvoja, ne voidaan myös automaattisesti
+muuntaa C-merkkijonoiksi, erityisesti koska `zig`-kääntäjä ei pakota
+tiettyä Zig-tietotyyppiä merkkijonoliteraaliin ensi silmäyksellä, ellei tallenna tätä
+merkkijonoliteraalia Zig-objektiin ja merkitse eksplisiittisesti tämän objektin tietotyyppiä.
+
+Näin ollen merkkijonoliteraaliarvojen kanssa `zig`-kääntäjällä on enemmän vapautta päättää, mikä on sopiva tietotyyppi
+kussakin tilanteessa. Voisi sanoa, että merkkijonoliteraaliarvo "perii tietotyypin" riippuen kontekstista,
+jossa sitä käytetään. Useimmiten tämä tietotyyppi on tyyppi, jonka yleensä yhdistämme Zig-merkkijonoihin (`[]const u8`).
+Mutta se voi olla eri tyyppi tilanteesta riippuen. Kun `zig`-kääntäjä havaitsee, että annat
+merkkijonoliteraaliarvon syötteenä jollekin C-funktiolle, kääntäjä tulkitsee automaattisesti tämän merkkijonoliteraalin
+C-merkkijonoarvoksi.
+
+Esimerkkinä katso alla esitettyä koodia. Tässä käytämme
+`fopen()`-C-funktiota avataksemme ja sulkeaksemme tiedoston. Jos et tiedä, miten tämä `fopen()`-
+funktio toimii C:ssä, se ottaa syötteeksi kaksi C-merkkijonoa. Mutta alla olevassa koodiesimerkissä välitämme
+Zig-koodissamme kirjoitettuja merkkijonoliteraaleja suoraan syötteinä tälle `fopen()`-C-funktiolle.
+
+Toisin sanoen emme tee mitään muunnosta Zig-merkkijonosta C-merkkijonoksi.
+Välitämme vain Zig-merkkijonoliteraalit suoraan syötteinä C-funktiolle. Ja se toimii hyvin!
+Sillä kääntäjä tulkitsee merkkijonon `"foo.txt"` C-merkkijonoksi nykyisessä kontekstissa.
+
+
+```{zig}
+#| eval: false
+const c = @cImport({
+    @cDefine("_NO_CRT_STDIO_INLINE", "1");
+    @cInclude("stdio.h");
+});
+
+pub fn main() !void {
+    const file = c.fopen("foo.txt", "rb");
+    if (file == null) {
+        @panic("Could not open file!");
+    }
+    if (c.fclose(file) != 0) {
+        return error.CouldNotCloseFileDescriptor;
+    }
+}
+```
+
+Tehdään kokeiluja kirjoittamalla sama koodi eri tavoin ja katsotaan,
+miten se vaikuttaa ohjelmaan. Aloituspisteenä tallennetaan `"foo.txt"`-merkkijono
+Zig-objektiin, kuten alla oleva `path`-objekti, ja välitetään sitten tämä Zig-objekti syötteenä `fopen()`-C-funktiolle.
+
+Jos teemme näin, ohjelma kääntyy ja suorittuu edelleen onnistuneesti. Huomaa, että olen jättänyt suurimman osan koodista pois tästä esimerkistä.
+Tämä on vain lyhyyden vuoksi, koska ohjelman loppuosa on edelleen sama.
+Ainoa ero tämän esimerkin ja edellisen välillä on vain nämä kaksi alla esitettyä riviä.
+
+```{zig}
+#| eval: false
+    const path = "foo.txt";
+    const file = c.fopen(path, "rb");
+    // Remainder of the program
+```
+
+Mitä tapahtuu, jos annat `path`-objektille eksplisiittisen tietotyypin? No, jos pakotan
+`zig`-kääntäjän tulkitsemaan tämän `path`-objektin Zig-merkkijono-objektina
+merkitsemällä `path`-objektin tietotyypiksi `[]const u8`, saan itse asiassa kääntäjävirheen,
+kuten alla demonstroidaan. Saamme tämän kääntäjävirheen, koska nyt pakotan `zig`-kääntäjän
+tulkitsemaan `path`:n Zig-merkkijono-objektina.
+
+Virheilmoituksen mukaan `fopen()`-C-funktio odotti syötteeksi arvoa tyypiltä `[*c]const u8` (C-merkkijono)
+arvon `[]const u8` (Zig-merkkijono) sijaan.
+Tarkemmin sanottuna tyyppi `[*c]const u8` on itse asiassa C-merkkijonon Zig-tyyppiesitys.
+Tyypin `[*c]`-osa tunnistaa C-osoittimen. Joten tämä Zig-tyyppi tarkoittaa käytännössä: C-osoitin taulukkoon (`[*c]`)
+vakio-tavuista (`const u8`).
+
+
+```{zig}
+#| eval: false
+    const path: []const u8 = "foo.txt";
+    const file = c.fopen(path, "rb");
+    // Remainder of the program
+```
+
+```
+t.zig:2:7 error: expected type '[*c]const u8', found '[]const u8':
+    const file = c.fopen(path, "rb");
+                         ^~~~
+```
+
+Siksi kun puhumme yksinomaan merkkijonoliteraaliarvoista, niin kauan kuin et anna näille merkkijonoliteraaliarvoille
+eksplisiittistä tietotyyppiä, `zig`-kääntäjän pitäisi pystyä automaattisesti
+muuntamaan ne C-merkkijonoiksi tarvittaessa.
+
+Entä @sec-primitive-data-types-osiossa esiteltyjen primitiivisten tietotyyppien käyttö?
+Otetaan alla esitetty koodi esimerkiksi. Tässä annamme liukulukuliteraaliarvoja syötteenä
+C-funktiolle `powf()`. Huomaa, että tämä koodiesimerkki kääntyy ja suorittuu onnistuneesti.
+
+```{zig}
+#| eval: false
+const std = @import("std");
+const cmath = @cImport({
+    @cInclude("math.h");
+});
+
+pub fn main(init: std.process.Init) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    const y = cmath.powf(15.68, 2.32);
+    try stdout.print("{d}\n", .{y});
+    try stdout.flush();
+}
+```
+
+```
+593.2023
+```
+
+Jälleen kerran, koska `zig`-kääntäjä ei liitä tiettyä tietotyyppiä literaaliarvoihin
+`15.68` ja `2.32` ensi silmäyksellä, kääntäjä voi automaattisesti muuntaa nämä arvot
+C:n `float`- (tai `double`-) vastineiksi ennen kuin se välittää ne `powf()`-C-funktiolle.
+Nyt, vaikka antaisin näille literaaliarvoille eksplisiittisen Zig-tietotyypin tallentamalla ne Zig-objektiin
+ja merkitsemällä eksplisiittisesti näiden objektien tyypin, koodi kääntyy ja suorittuu edelleen onnistuneesti.
+
+```{zig}
+#| eval: false
+    const x: f32 = 15.68;
+    const y = cmath.powf(x, 2.32);
+    // The remainder of the program
+```
+
+```
+593.2023
+```
+
+
+
+### "Vaatii muunnoksen" -skenaario
+
+"Vaatii muunnoksen" -skenaario on tilanne, jossa meidän täytyy manuaalisesti muuntaa Zig-objektimme C-yhteensopiviksi arvoiksi
+ennen niiden välittämistä C-funktioiden syötteinä. Joudut tähän skenaarioon, kun välität Zig-merkkijono-objekteja
+C-funktioille.
+
+Olemme jo nähneet tämän tilanteen viimeisessä `fopen()`-esimerkissä,
+joka on toistettu alla. Voit nähdä tässä esimerkissä, että olemme antaneet `path`-objektille eksplisiittisen Zig-tietotyypin
+(`[]const u8`), ja seurauksena olemme pakottaneet `zig`-kääntäjän
+näkemään tämän `path`-objektin Zig-merkkijono-objektina. Siksi meidän täytyy nyt manuaalisesti muuntaa
+tämä `path`-objekti C-merkkijonoksi ennen kuin välitämme sen `fopen()`:lle.
+
+
+```{zig}
+#| eval: false
+    const path: []const u8 = "foo.txt";
+    const file = c.fopen(path, "rb");
+    // Remainder of the program
+```
+
+```
+t.zig:10:26: error: expected type '[*c]const u8', found '[]const u8'
+    const file = c.fopen(path, "rb");
+                         ^~~~
+```
+
+
+On erilaisia tapoja muuntaa Zig-merkkijono-objekti C-merkkijonoksi.
+Yksi tapa ratkaista tämä ongelma on antaa osoitin taustalla olevaan tavutaulukkoon
+sen sijaan, että antaisit Zig-objektin suoraan syötteenä.
+Voit käyttää tätä osoitinta Zig-merkkijono-objektin `ptr`-ominaisuuden kautta.
+
+Alla oleva koodiesimerkki demonstroi tämän strategian. Huomaa, että antamalla
+osoittimen `path`:n taustalla olevaan taulukkoon `ptr`-ominaisuuden kautta emme saa kääntäjävirheitä
+käyttäessämme `fopen()`-C-funktiota.
+
+```{zig}
+#| eval: false
+    const path: []const u8 = "foo.txt";
+    const file = c.fopen(path.ptr, "rb");
+    // Remainder of the program
+```
+
+Tämä strategia toimii, koska osoitin taustalla olevaan taulukkoon, joka löytyy `ptr`-ominaisuudesta,
+on semanttisesti identtinen C-osoittimen kanssa tavutaulukkoon, eli C-objektin tyyppi `*unsigned char`.
+Siksi tämä vaihtoehto ratkaisee myös Zig-merkkijonon muuntamisen C-merkkijonoksi.
+
+Toinen vaihtoehto on muuntaa Zig-merkkijono-objekti eksplisiittisesti C-osoittimeksi käyttämällä
+sisäänrakennettua funktiota `@ptrCast()`. Tällä funktiolla voimme muuntaa
+objektin tyypistä `[]const u8` objektiksi tyypiltä `[*c]const u8`.
+Kuten kuvasin edellisessä osiossa, tyypin `[*c]`-osa
+tarkoittaa, että kyseessä on C-osoitin. Tätä strategiaa ei suositella. Mutta se on
+hyödyllinen demonstroimaan `@ptrCast()`:n käyttöä.
+
+Saatat muistaa `@as()`:n ja `@ptrCast()`:n @sec-type-cast-osiossa. Lyhyesti toistettuna,
+`@as()`-sisäänrakennettu funktiota käytetään muuntamaan (tai castaamaan) eksplisiittisesti Zig-arvo
+tyypistä "x" arvoksi tyypiltä "y". Mutta tässä tapauksessamme muunnamme
+osoitinobjektin. Aina kun osoitin on mukana jossakin "tyypin castausoperaatiossa" Zigissä,
+`@ptrCast()`-funktio on mukana.
+
+Alla olevassa esimerkissä käytämme tätä funktiota castaamaan `path`-objektimme
+C-osoittimeksi tavutaulukkoon. Sitten välitämme tämän C-osoittimen syötteenä
+`fopen()`-funktiolle. Huomaa, että tämä koodiesimerkki kääntyy onnistuneesti
+ilman virheitä.
+
+```{zig}
+#| eval: false
+    const path: []const u8 = "foo.txt";
+    const c_path: [*c]const u8 = @ptrCast(path);
+    const file = c.fopen(c_path, "rb");
+    // Remainder of the program
+```
+
+
+
+## C-objektien luominen Zigissä {#sec-c-inputs}
+
+C-objektien luominen, tai toisin sanoen C-structien instanssien luominen Zig-koodissasi,
+on itse asiassa melko helppoa. Sinun täytyy ensin tuoda C-otsikkotiedosto (kuten kuvasin @sec-import-c-header-osiossa), joka määrittelee
+C-structin, jonka yrität instansioida Zig-koodissasi. Sen jälkeen voit vain
+luoda uuden objektin Zig-koodissasi ja merkitä sen C-structin tietotyypillä.
+
+Esimerkiksi oletetaan, että meillä on C-otsikkotiedosto nimeltä `user.h`, ja tämä otsikkotiedosto deklaroi uuden structin nimeltä `User`.
+Tämä C-otsikkotiedosto on esitetty alla:
+
+```c
+#include <stdint.h>
+
+typedef struct {
+    uint64_t id;
+    char* name;
+} User;
+```
+
+Tällä `User`-C-structilla on kaksi erillistä kenttää eli kaksi struct-jäsentä nimeltä `id` ja `name`.
+Kenttä `id` on etumerkitön 64-bittinen kokonaislukuarvo, kun taas kenttä `name` on tavallinen C-merkkijono.
+Nyt oletetaan, että haluan luoda instanssin tästä `User`-structista Zig-koodissani.
+Voin tehdä sen tuomalla tämän `user.h`-otsikkotiedoston Zig-koodiini ja luomalla
+uuden objektin tyypillä `User`. Nämä vaiheet on toistettu alla olevassa koodiesimerkissä.
+
+Huomaa, että olen käyttänyt tässä esimerkissä avainsanaa `undefined`. Tämä antaa minun
+luoda `new_user`-objektin ilman, että minun täytyy antaa objektille alkuarvoa.
+Seurauksena `new_user`-objektiin liittyvä muisti on alustamaton,
+eli muisti on tällä hetkellä täytetty "roska"-arvoilla.
+Siksi tämä lauseke on täsmälleen samanlainen kuin lauseke `User new_user;` C:ssä,
+mikä tarkoittaa "deklaroi uusi objekti nimeltä `new_user` tyypiltä `User`".
+
+On meidän vastuullamme alustaa oikein tämä `new_user`-objektiin liittyvä muisti
+määrittämällä kelvolliset arvot C-structin jäsenille (tai kentille). Alla olevassa esimerkissä
+määritän kokonaisluvun 1 jäsenelle `id`. Tallennan myös merkkijonon `"pedropark99"` jäsenelle `name`.
+Huomaa tässä esimerkissä, että lisään manuaalisesti null-merkin (nollatavu) merkkijonolle varatun taulukon loppuun.
+Tämä null-merkki merkitsee taulukon loppua C:ssä.
+
+```{zig}
+#| auto_main: false
+#| eval: false
+const std = @import("std");
+const c = @cImport({
+    @cInclude("user.h");
+});
+
+pub fn main() !void {
+    var gpa = std.heap.DebugAllocator(.{}){};
+    const allocator = gpa.allocator();
+
+    var new_user: c.User = undefined;
+    new_user.id = 1;
+    var user_name = try allocator.alloc(u8, 12);
+    defer allocator.free(user_name);
+    @memcpy(user_name[0..(user_name.len - 1)], "pedropark99");
+    user_name[user_name.len - 1] = 0;
+    new_user.name = user_name.ptr;
+}
+```
+
+Joten yllä olevassa esimerkissä alustamme manuaalisesti jokaisen C-structin kentän.
+Voisimme sanoa, että tässä tapauksessa "instansoimme manuaalisesti
+C-struct-objektin". Kuitenkin kun käytämme C-kirjastoja Zig-koodissamme, harvoin tarvitsemme
+instansioida C-structeja manuaalisesti näin. Ainoastaan siksi, että C-kirjastot
+tarjoavat yleensä "konstruktorifunktion" julkisissa API:issaan. Seurauksena luotamme normaalisti
+näihin konstruktorifunktioihin alustamaan C-structit ja
+struct-kentät puolestamme.
+
+Esimerkiksi harkitse Harfbuzz C-kirjastoa. Tämä on tekstin muotoiluun tarkoitettu C-kirjasto,
+ja se toimii "puskurobjektin" ympärillä, tai tarkemmin sanottuna instanssin
+C-structista `hb_buffer_t`. Siksi meidän täytyy luoda instanssi
+tästä C-structista, jos haluamme käyttää tätä C-kirjastoa. Onneksi tämä kirjasto tarjoaa
+funktion `hb_buffer_create()`, jota voimme käyttää luomaan tällaisen objektin.
+Joten Zig-koodi, joka tarvitaan tällaisen objektin luomiseen, näyttäisi todennäköisesti tältä:
+
+```{zig}
+#| eval: false
+const c = @cImport({
+    @cInclude("hb.h");
+});
+var buf: c.hb_buffer_t = c.hb_buffer_create();
+// Do stuff with the "buffer object"
+```
+
+Siksi meidän ei tarvitse manuaalisesti luoda instanssia C-structista
+`hb_buffer_t` täällä ja manuaalisesti määrittää kelvollisia arvoja jokaiselle kentälle tässä C-structissa.
+Sillä konstruktorifunktio `hb_buffer_create()` tekee tämän raskaan työn puolestamme.
+
+Koska tämä `buf`-objekti ja myös `new_user`-objekti aiemmista esimerkeistä ovat instansseja C-structeista, nämä
+objektit ovat itsessään C-yhteensopivia arvoja. Ne ovat C-objekteja, jotka on määritelty Zig-koodissamme. Seurauksena
+voit vapaasti välittää nämä objektit syötteinä mille tahansa C-funktiolle, joka odottaa vastaanottavansa tämän tyyppisen
+C-structin syötteenä. Sinun ei tarvitse käyttää erityistä syntaksia tai muuntaa niitä
+millään erityisellä tavalla käyttääksesi niitä C-koodissa. Näin luomme ja käytämme C-objekteja Zig-koodissamme.
+
+
+
+## C-structien välittäminen Zig-funktioiden välillä {#sec-pass-c-structs}
+
+Nyt kun olemme oppineet luomaan/deklaroimaan C-objekteja Zig-koodissamme, meidän
+täytyy oppia välittämään nämä C-objektit syötteinä Zig-funktioille.
+Kuten kuvasin @sec-c-inputs-osiossa, voimme vapaasti välittää nämä C-objektit syötteinä C-koodille,
+jota kutsumme Zig-koodistamme. Entä näiden C-objektien välittäminen Zig-funktioille?
+
+Pohjimmiltaan tämä tapaus vaatii yhden pienen muutoksen Zig-funktion deklaraatiossa.
+Sinun tarvitsee vain varmistaa, että välität C-objektisi *viitteenä* funktiolle
+sen sijaan, että välittäisit sen *arvona*. Tehdäksesi sen sinun täytyy merkitä funktioargumentin tietotyyppi,
+joka vastaanottaa tämän C-objektin, muodossa "osoitin C-structiin" sen sijaan, että merkitsisit sen muodossa "instanssi C-structista".
+
+Harkitse C-structia `User` `user.h`-C-otsikkotiedostosta, jota olemme käyttäneet @sec-c-inputs-osiossa.
+Nyt oletetaan, että haluamme luoda Zig-funktion, joka asettaa `id`-kentän arvon
+tässä C-structissa, kuten alla deklaroitu `set_user_id()`-funktio.
+Huomaa, että `user`-argumentti tässä funktiossa on merkitty osoittimeksi (`*`) `c.User`-objektiin.
+
+Siksi ainoa mitä sinun täytyy tehdä välittäessäsi C-objekteja Zig-funktioille, on lisätä `*` funktioargumentin
+tietotyyppiin, joka vastaanottaa C-objektin. Tämä varmistaa, että
+C-objekti välitetään funktiolle *viitteenä*.
+
+Koska olemme muuttaneet funktioargumentin osoittimeksi,
+aina kun sinun täytyy käyttää tämän syöteosoittimen osoittamaa arvoa funktion rungossa, mistä tahansa syystä (esim. haluat
+lukea, päivittää tai poistaa tämän arvon), sinun täytyy dereferoida osoitin `.*`-syntaksilla, jonka
+opimme @sec-pointer-osiossa. Huomaa, että `set_user_id()`-funktio käyttää tätä syntaksia muuttaakseen
+syöteosoittimen osoittaman `User`-structin `id`-kentän arvoa.
+
+```{zig}
+#| auto_main: false
+#| eval: false
+const std = @import("std");
+const c = @cImport({
+    @cInclude("user.h");
+});
+fn set_user_id(id: u64, user: *c.User) void {
+    user.*.id = id;
+}
+
+pub fn main(init: std.process.Init) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    var gpa = std.heap.DebugAllocator(.{}){};
+    const allocator = gpa.allocator();
+
+    var new_user: c.User = undefined;
+    new_user.id = 1;
+    var user_name = try allocator.alloc(u8, 12);
+    defer allocator.free(user_name);
+    @memcpy(user_name[0..(user_name.len - 1)], "pedropark99");
+    user_name[user_name.len - 1] = 0;
+    new_user.name = user_name.ptr;
+
+    set_user_id(25, &new_user);
+    try stdout.print("New ID: {any}\n", .{new_user.id});
+    try stdout.flush();
+}
+```
+
+```
+New ID: 25
+```

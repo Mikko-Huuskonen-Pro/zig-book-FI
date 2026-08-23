@@ -1,0 +1,880 @@
+---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+translation:
+  source: Chapters/01-base64.qmd
+  source_sha256: b1c54347cf076c58df92558eab788e420a1ebff70a9b4c27214e369d9da61585
+  status: complete
+---
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+# Projekti 1 – base64-enkooderin/dekooderin rakentaminen {#sec-base64}
+
+Ensimmäisenä pienenä projektina haluan toteuttaa kanssasi base64-enkooderin/dekooderin.
+Base64 on enkoodausjärjestelmä, joka muuntaa binääridatan tekstiksi.
+Suuri osa verkosta käyttää base64:ää toimittaakseen binääridataa järjestelmille,
+jotka pystyvät lukemaan vain tekstidataa.
+
+Yleisin esimerkki base64:n nykyaikaisesta käyttötapauksesta on käytännössä mikä tahansa sähköpostijärjestelmä,
+kuten GMail, Outlook jne. Sähköpostijärjestelmät käyttävät yleensä
+Simple Mail Transfer Protocolia (SMTP), joka on verkkoprotokolla
+tukee vain tekstidataa. Jos sinun täytyy jostain syystä
+lähettää binääritiedosto (esimerkiksi PDF tai Excel-tiedosto) sähköpostin
+liitteenä, nämä binääritiedostot muunnetaan yleensä
+base64-muotoon ennen kuin ne sisällytetään SMTP-viestiin.
+Base64-enkoodausta käytetään siis laajasti näissä sähköpostijärjestelmissä binääridatan
+sisällyttämiseen SMTP-viestiin.
+
+
+
+
+
+
+## Miten base64-algoritmi toimii?
+
+Mutta miten base64-enkoodauksen taustalla oleva algoritmi tarkalleen ottaen toimii? Käsitellään sitä. Ensin selitän
+base64-asteikon, joka on 64 merkin asteikko ja muodostaa
+base64-enkoodausjärjestelmän perustan.
+
+Sen jälkeen selitän base64-enkooderin taustalla olevan algoritmin, eli sen osan algoritmista, joka vastaa viestien
+enkoodaamisesta base64-enkoodausjärjestelmään. Tämän jälkeen selitän base64-dekooderin taustalla olevan algoritmin, eli
+sen osan algoritmista, joka vastaa base64-viestien muuntamisesta takaisin alkuperäiseen muotoonsa.
+
+Jos et ole varma "enkooderin" ja "dekooderin" eroista,
+katso kohta @sec-encode-vs-decode.
+
+
+### Base64-asteikko {#sec-base64-scale}
+
+Base64-enkoodausjärjestelmä perustuu asteikkoon, joka ulottuu arvosta 0 arvoon 63 (siksi nimi).
+Jokainen indeksi tässä asteikossa esitetään merkillä (kyseessä on 64 merkin asteikko).
+Jotta voimme muuntaa binääridataa base64-enkoodaukseen, meidän on muutettava jokainen binääriluku vastaavaksi
+merkiksi tässä "64 merkin asteikossa".
+
+Base64-asteikko alkaa kaikilla ASCII-isolla kirjaimilla (A–Z), jotka edustavat
+asteikon ensimmäisiä 26 indeksiä (0–25). Sen jälkeen tulevat kaikki ASCII-pienet kirjaimet
+(a–z), jotka edustavat asteikon aluetta 26–51. Sen jälkeen tulevat
+yksinumeroiset numerot (0–9), jotka edustavat asteikon indeksejä 52–61.
+Lopuksi asteikon kaksi viimeistä indeksiä (62 ja 63) esitetään merkeillä `+` ja `/`,
+vastaavasti.
+
+Nämä ovat 64 merkkiä, jotka muodostavat base64-asteikon. Yhtäsuuruusmerkki (`=`) ei kuulu itse asteikkoon,
+mutta se on erityinen merkki base64-enkoodausjärjestelmässä. Tätä merkkiä käytetään ainoastaan suffiksina merkkirivin lopun merkitsemiseen
+tai merkityksellisten merkkien lopun merkitsemiseen rivissä.
+
+Alla olevat luettelomerkit tiivistävät base64-asteikon:
+
+- alue 0–25 edustaa: ASCII-isot kirjaimet `-> [A-Z]`;
+- alue 26–51 edustaa: ASCII-pienet kirjaimet `-> [a-z]`;
+- alue 52–61 edustaa: yksinumeroiset numerot `-> [0-9]`;
+- indeksit 62 ja 63 edustavat merkkejä `+` ja `/`, vastaavasti;
+- merkki `=` edustaa merkityksellisten merkkien loppua rivissä;
+
+
+
+
+### Asteikon luominen hakutauluna {#sec-base64-table}
+
+Paras tapa esittää tämä asteikko koodissa on esittää se *hakutauluna*.
+Hakutaulut ovat klassinen strategia tietojenkäsittelytieteessä laskentojen nopeuttamiseksi. Perusajatuksena
+on korvata ajonaikainen laskenta (joka voi kestää kauan) yksinkertaisella taulukon indeksointioperaatiolla.
+
+Sen sijaan, että lasket tulokset joka kerta uudelleen tarvittaessa, lasket kaikki mahdolliset tulokset kerralla ja tallennat ne taulukkoon
+(joka toimii "taulukon" tavoin). Sitten aina kun tarvitset jonkin base64-asteikon merkeistä, sen sijaan että
+käyttäisit paljon resursseja tarkan merkin laskemiseen, haet merkin suoraan
+taulukosta, johon olet tallentanut kaikki base64-asteikon mahdolliset merkit.
+Haemme tarvitsemamme merkin suoraan muistista.
+
+Voimme alkaa rakentaa Zig-rakennetta base64-dekooderin/enkooderin logiikan tallentamiseen.
+Aloitamme alla olevasta `Base64`-rakenteesta. Toistaiseksi meillä on tässä
+rakenteessa vain yksi datajäsen, eli jäsen `_table`, joka edustaa hakutauluamme. Meillä on myös `init()`-metodi
+uuden `Base64`-olion luomiseen sekä `_char_at()`-metodi, joka on
+"hae merkki indeksistä $x$" -tyyppinen funktio.
+
+
+```{zig}
+#| build_type: "lib"
+#| auto_main: false
+const Base64 = struct {
+    _table: *const [64]u8,
+
+    pub fn init() Base64 {
+        const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const lower = "abcdefghijklmnopqrstuvwxyz";
+        const numbers_symb = "0123456789+/";
+        return Base64{
+            ._table = upper ++ lower ++ numbers_symb,
+        };
+    }
+
+    pub fn _char_at(self: Base64, index: usize) u8 {
+        return self._table[index];
+    }
+};
+```
+
+
+Toisin sanoen `_char_at()`-metodi hakee hakutaulusta (eli `_table`-rakennejäsenestä) merkin, joka vastaa tiettyä indeksiä
+"base64-asteikossa". Alla olevassa esimerkissä tiedämme siis, että merkki, joka vastaa
+indeksiä 28 "base64-asteikossa", on merkki "c".
+
+
+```{zig}
+#| eval: false
+const base64 = Base64.init();
+try stdout.print(
+    "Character at index 28: {c}\n",
+    .{base64._char_at(28)}
+);
+try stdout.flush();
+```
+
+```
+Character at index 28: c
+```
+
+
+
+### Base64-enkooderi {#sec-base64-encoder-algo}
+
+Base64-enkooderin taustalla oleva algoritmi toimii yleensä 3 tavun ikkunassa. Koska jokaisessa tavussa on
+8 bittiä, 3 tavua muodostaa joukon $8 \times 3 = 24$ bittiä. Tämä sopii base64-algoritmille, koska
+24 bittiä on jaollinen luvulla 6, mikä muodostaa $24 / 6 = 4$ ryhmää, joissa kussakin on 6 bittiä.
+
+Base64-algoritmi toimii siis muuntamalla 3 tavua kerrallaan
+4 merkiksi base64-asteikosta. Se käy läpi syötemerkkijonon
+3 tavua kerrallaan ja muuntaa ne base64-asteikkoon tuottaen 4 merkkiä
+jokaisella iteraatiolla. Se jatkaa iterointia ja tuottaa näitä "uusia merkkejä",
+kunnes se saavuttaa syötemerkkijonon lopun.
+
+Saatat nyt miettiä: entä jos merkkijonossa on tavuja määrä, joka
+ei ole jaollinen luvulla 3 — mitä tapahtuu? Esimerkiksi jos merkkijonossa
+on vain kaksi merkkiä/tavua, kuten "Hi". Miten algoritmi
+käyttäytyy tällaisessa tilanteessa? Vastaus löytyy kuvasta @fig-base64-algo1.
+Kuvasta @fig-base64-algo1 näet, että merkkijono "Hi" muunnettaessa base64-muotoon
+tulee merkkijono "SGk=":
+
+![Base64-enkooderin logiikka](./../Figures/base64-encoder-flow.png){#fig-base64-algo1}
+
+Otetaan esimerkiksi merkkijono "Hi": meillä on 2 tavua eli yhteensä 16 bittiä. Meiltä puuttuu siis yksi täysi tavu (8 bittiä)
+täydentääksemme 24 bitin ikkunan, jolla base64-algoritmi haluaa työskennellä. Ensimmäinen asia, jonka
+algoritmi tekee, on tarkistaa, miten syötetavut jaetaan 6 bitin ryhmiin.
+
+Jos algoritmi huomaa, että jokin 6 bitin ryhmä ei ole täydellinen, eli ryhmä sisältää $nbits$ bittiä, missä $0 < nbits < 6$,
+algoritmi lisää ryhmään ylimääräisiä nollia täyttääkseen tarvittavan tilan.
+Siksi kuvassa @fig-base64-algo1 kolmanteen ryhmään 6 bitin muunnoksen jälkeen
+lisättiin 2 ylimääräistä nollaa täyttämään aukko.
+
+Kun meillä on 6 bitin ryhmä, joka ei ole täysin täynnä, kuten kolmas ryhmä, aukkoon
+lisätään ylimääräisiä nollia. Entä kun koko 6 bitin ryhmä on tyhjä tai
+sitä ei yksinkertaisesti ole? Tämä on neljännen 6 bitin ryhmän tilanne
+kuvassa @fig-base64-algo1.
+
+Tämä neljäs ryhmä on tarpeen, koska algoritmi toimii 4 ryhmällä, joissa kussakin on 6 bittiä.
+Syötemerkkijonossa ei kuitenkaan ole tarpeeksi tavuja neljännen 6 bitin ryhmän luomiseen.
+Aina kun näin tapahtuu eli koko 6 bitin ryhmä on tyhjä,
+ryhmästä tulee "täyteyryhmä". Jokainen "täyteyryhmä" kartoitetaan
+merkkiin `=` (yhtäsuuruusmerkki), joka edustaa "tyhjää" tai merkityksellisten merkkien loppua
+rivissä. Siksi aina kun algoritmi tuottaa
+"täyteyryhmän", ryhmä kartoitetaan automaattisesti merkkiin `=`.
+
+Toisena esimerkkinä: jos annat base64-enkooderille syötteeksi merkkijonon "0", merkkijono
+muunnetaan base64-jonoksi "MA==".
+Merkki "0" on binäärimuodossa sekvenssi `00110000`[^zero-note]. 6 bitin muunnoksella
+kuvassa @fig-base64-algo1 tästä yhdestä merkistä syntyisi nämä kaksi 6 bitin ryhmää: `001100`, `000000`.
+Jäljellä olevista kahdesta 6 bitin ryhmästä tulee "täyteyryhmiä". Siksi tulosjonon (MA==) kaksi viimeistä
+merkkiä ovat `==`.
+
+
+[^zero-note]: Huomaa, että merkki "0" on eri asia kuin itse luku 0, joka on binäärimuodossa yksinkertaisesti nolla.
+
+### Base64-dekooderi {#sec-base64-decoder-algo}
+
+Base64-dekooderin taustalla oleva algoritmi on käytännössä base64-enkooderin käänteinen prosessi, mutta sitä on
+hieman vaikeampi selittää tai demonstroida visuaalisesti.
+Base64-dekooderin täytyy muuntaa base64-viestit takaisin alkuperäiseen merkitykseensä,
+eli alkuperäiseen binääridatajonoon.
+
+Base64-enkooderi työskenteli 3 tavun ikkunassa, joka luo 4 ryhmää, joissa kussakin on 6 bittiä. Mutta
+base64-dekooderi työskentelee 4 tavun ikkunassa. Dekooderi haluaa nimittäin muuntaa nämä 4 tavua
+takaisin alkuperäiseen 3 tavun jonoon, josta ne ovat peräisin. Jälleen kerran käännämme siis käytännössä
+base64-enkooderin tekemän prosessin.
+
+Dekooderin tulosjonon (alkuperäinen binääridata) jokainen tavu luodaan yleensä
+kahdesta eri tavusta syötteessä (base64-enkoodatus data).
+Toisin sanoen dekooderin tuottama jokainen tavu syntyy muuntamalla (tai yhdistämällä) kaksi eri
+syötteen tavua yhteen. Voit visualisoida tämän suhteen kuvassa @fig-base64-algo2:
+
+![Base64-dekooderin logiikka](./../Figures/base64-decoder-flow.png){#fig-base64-algo2}
+
+Ensin otamme syötteestä jokaisen base64-enkoodatun merkin ja muunnamme sen takaisin vastaavaksi indeksiksi base64-asteikossa.
+Tämä tehdään käyttämällä hakutaulua, joka edustaa base64-asteikkoamme. Sen jälkeen sovellamme näihin indekseihin sarjan bittimuunnoksia
+tuottaaksemme viestin alkuperäiset tavut.
+
+Tarkat muunnokset eli tarkat vaiheet, joita sovelletaan base64-indekseihin muuntaaksemme ne
+tulosteen tavuiksi, ovat hieman hankalia visualisoida tällaisessa kuvassa. Siksi olen
+tiivistänyt useimmat näistä muunnoksista muotoon "Some bit shifting and additions ..." kuvassa. Nämä muunnokset
+kuvataan myöhemmin perusteellisesti.
+
+Lisäksi, jos katsot uudelleen kuvaa @fig-base64-algo2, huomaat, että merkki `=` kartoitettiin NULL-arvoksi
+algoritmin alussa. Muista, että merkki `=` ei kuulu base64-asteikkoon. Se on vain erityinen merkki,
+joka merkitsee merkityksellisten merkkien lopun base64-jonossa. Jos siis yritämme kartoittaa merkin `=` indeksiin
+base64-asteikossa, saisimme NULL-arvon (joka vastaa nollaa binäärimuodossa), koska se ei kuulu asteikkoon.
+
+
+## Ero enkoodauksen ja dekoodauksen välillä {#sec-encode-vs-decode}
+
+Jos sinulla ei ole aiempaa kokemusta base64:stä, et ehkä ymmärrä eroa
+"enkoodauksen" ja "dekoodauksen" välillä. Käytännössä termeillä "enkoodaus" ja "dekoodaus" on tässä
+täsmälleen sama merkitys kuin salauksen alalla (eli ne tarkoittavat samaa kuin "enkoodaus" ja "dekoodaus" tiivistealgoritmeissa,
+kuten MD5-algoritmissa).
+
+"Enkoodaus" tarkoittaa siis, että haluamme enkoodata eli toisin sanoen muuntaa jonkin viestin
+base64-enkoodausjärjestelmään. Haluamme tuottaa base64-merkkijonon, joka edustaa tätä
+alkuperäistä viestiä base64-enkoodausjärjestelmässä.
+
+Vastakohtana "dekoodaus" edustaa käänteistä prosessia.
+Haluamme dekoodata eli toisin sanoen muuntaa base64-viestin takaisin alkuperäiseen sisältöönsä.
+Tässä prosessissa saamme syötteeksi base64-merkkijonon ja tuotamme tulosteena
+binääridatan, jota tämä base64-merkkijono edustaa.
+
+Mikä tahansa base64-kirjasto koostuu yleensä näistä kahdesta osasta: 1) enkooderi, joka on funktio enkoodaakseen
+(eli muuntaakseen) minkä tahansa binääridatajonon base64-merkkijonoksi; 2) dekooderi, joka on funktio
+muuntaakseen base64-merkkijonon takaisin alkuperäiseksi binääridatajonoksi.
+
+
+
+## Tulosteen koon laskeminen {#sec-base64-length-out}
+
+Yksi tehtävä, jonka meidän täytyy tehdä, on laskea, kuinka paljon tilaa varaamme
+tulosteelle sekä enkooderissa että dekooderissa. Tämä on yksinkertaista matematiikkaa, ja sen voi tehdä helposti Zigissä,
+koska jokaisen taulukon pituus (sen elementtien määrä) on helposti saatavilla tarkastelemalla
+taulukon `.len`-ominaisuutta.
+
+Enkooderin logiikka on seuraava: jokaisesta 3 tavusta syötteessä
+luodaan 4 uutta tavua tulosteessa. Otamme siis syötteen tavujen määrän, jaamme sen
+luvulla 3, käytämme kattofunktiota ja kerromme tuloksen luvulla 4. Näin saamme enkooderin
+tuottamien tavujen kokonaismäärän.
+
+Alla oleva `_calc_encode_length()`-funktio kiteyttää tämän logiikan.
+Funktion sisällä otamme syötetaulukon pituuden,
+jaamme sen luvulla 3 ja sovellamme katto-operaatiota tulokseen käyttämällä Zig Standard Libraryn
+`divCeil()`-funktiota. Lopuksi kerromme lopputuloksen luvulla 4 saadaksemme tarvitsemamme vastauksen.
+
+Saatat myös huomata, että jos syötteen pituus on alle 3 tavua, enkooderin tulosteen pituus on
+aina 4 tavua. Näin on kaikilla syötteillä, joissa on alle 3 tavua, koska kuten kuvasin kohdassa @sec-base64-encoder-algo,
+algoritmi tuottaa aina tarpeeksi "täyteyryhmiä" lopputulokseen täydentääkseen 4 tavun ikkunan.
+
+```{zig}
+#| auto_main: false
+#| build_type: "lib"
+const std = @import("std");
+fn _calc_encode_length(input: []const u8) !usize {
+    if (input.len < 3) {
+        return 4;
+    }
+    const n_groups: usize = try std.math.divCeil(
+        usize, input.len, 3
+    );
+    return n_groups * 4;
+}
+```
+
+
+Dekooderin tulosteen pituuden laskemisen logiikka on hieman monimutkaisempi. Se on kuitenkin käytännössä
+enkooderille käyttämämme käänteinen logiikka: jokaisesta 4 tavusta syötteessä dekooderin tulosteessa
+tuotetaan 3 tavua. Tällä kertaa meidän täytyy kuitenkin ottaa huomioon
+merkki `=`, jonka dekooderi aina ohittaa, kuten kuvasimme kohdissa @sec-base64-decoder-algo ja
+@fig-base64-algo2.
+
+Pohjimmiltaan otamme syötteen pituuden, jaamme sen luvulla 4, sovellamme tulokseen lattiafunktiota, kerromme
+tuloksen luvulla 3 ja vähennämme tuloksesta sen, kuinka monta kertaa merkki `=` löytyy
+syötteestä.
+
+Alla esitetty `_calc_decode_length()`-funktio tiivistää kuvaamamme logiikan. Se on samankaltainen
+kuin funktio `_calc_encode_length()`. Huomaa, että jakolasku on kääntynyt. Huomaa myös, että tällä kertaa sovellamme
+jakolaskun tulokseen lattia-operaation käyttämällä `divFloor()`-funktiota
+(katton sijaan `divCeil()`-funktiolla).
+
+
+```{zig}
+#| auto_main: false
+#| build_type: "lib"
+const std = @import("std");
+fn _calc_decode_length(input: []const u8) !usize {
+    if (input.len < 4) {
+        return 3;
+    }
+
+    const n_groups: usize = try std.math.divFloor(
+        usize, input.len, 4
+    );
+    var multiple_groups: usize = n_groups * 3;
+    var i: usize = input.len - 1;
+    while (i > 0) : (i -= 1) {
+        if (input[i] == '=') {
+            multiple_groups -= 1;
+        } else {
+            break;
+        }
+    }
+
+    return multiple_groups;
+}
+```
+
+
+## Enkooderilogiikan rakentaminen {#sec-encoder-logic}
+
+Tässä osiossa voimme alkaa rakentaa `encode()`-funktion taustalla olevaa logiikkaa, joka
+vastaa viestien enkoodaamisesta base64-enkoodausjärjestelmään.
+Jos olet kärsimätön ja haluat nähdä heti koko toteutuksen lähdekoodin
+tälle base64-enkooderille/dekooderille, löydät sen kirjaa varten virallisen repositorion
+`ZigExamples`-kansiosta[^zig-base64-algo].
+
+[^zig-base64-algo]: <https://github.com/pedropark99/zig-book/blob/main/ZigExamples/base64/base64_basic.zig>.
+
+
+
+### 6 bitin muunnos {#sec-6bit-transf}
+
+Kuvassa @fig-base64-algo1 esitetty 6 bitin muunnos on base64-enkooderialgoritmin ydinosa.
+Kun ymmärrät, miten tämä muunnos tehdään koodissa, loppu algoritmista on paljon helpompi
+ymmärtää.
+
+Pohjimmiltaan tämä 6 bitin muunnos tehdään bittioperaattoreiden avulla.
+Bittioperaattorit ovat välttämättömiä kaikentyyppisissä matalan tason operaatioissa, joita tehdään bittitasolla. Base64-algoritmin tapauksessa
+käytetään operaattoreita *bittisiirto vasemmalle* (`<<`), *bittisiirto oikealle* (`>>`) ja *bittikohtainen ja* (`&`). Ne
+ovat 6 bitin muunnoksen ydinratkaisu.
+
+Tässä muunnoksessa on otettava huomioon 3 eri skenaariota. Ensimmäinen on täydellinen skenaario,
+jossa meillä on täydellinen 3 tavun ikkuna työskentelyyn. Toisessa skenaariossa meillä on vain
+2 tavun ikkuna. Kolmannessa skenaariossa meillä on vain yksi tavu.
+
+Kussakin näistä 3 skenaariosta 6 bitin muunnos toimii hieman eri tavalla. Selkeyden vuoksi
+käytän muuttujaa `output` viittaamaan base64-enkooderin tulosteen tavuihin
+ja muuttujaa `input` viittaamaan enkooderin syötteen tavuihin.
+
+
+Jos sinulla on täydellinen 3 tavun ikkuna, 6 bitin muunnoksen vaiheet ovat:
+
+1. `output[0]` tuotetaan siirtämällä `input[0]`:n bitit kaksi paikkaa oikealle.
+1. `output[1]` tuotetaan laskemalla yhteen kaksi komponenttia. Ensin otetaan `input[0]`:n kaksi viimeistä bittiä ja siirretään ne neljä paikkaa vasemmalle. Toiseksi siirretään `input[1]`:n bitit neljä paikkaa oikealle. Lasketaan nämä komponentit yhteen.
+1. `output[2]` tuotetaan laskemalla yhteen kaksi komponenttia. Ensin otetaan `input[1]`:n neljä viimeistä bittiä ja siirretään ne kaksi paikkaa vasemmalle. Toiseksi siirretään `input[2]`:n bitit kuusi paikkaa oikealle. Lasketaan nämä komponentit yhteen.
+1. `output[3]` tuotetaan ottamalla `input[2]`:n kuusi viimeistä bittiä.
+
+
+Tämä on täydellinen skenaario, jossa meillä on täysi 3 tavun ikkuna työskentelyyn.
+Selkeyden vuoksi kuva @fig-encoder-bitshift demonstroi visuaalisesti, miten
+yllä mainittu vaihe 2 toimii. Enkooderin tulosteen 2. tavu muodostuu siis ottamalla syötteen 1. tavu (tummanvioletti)
+ja 2. tavu (oranssi). Näet, että prosessin lopussa saamme uuden
+tavun, joka sisältää syötteen `input` 1. tavun 2 viimeistä bittiä ja syötteen `input` 2. tavun 4 ensimmäistä bittiä.
+
+![Miten enkooderin tulosteen 2. tavu tuotetaan syötteen 1. tavusta (tummanvioletti) ja 2. tavusta (oranssi).](../Figures/base64-encoder-bit-shift.png){#fig-encoder-bitshift}
+
+Toisaalta meidän on oltava valmiita tilanteisiin, joissa meillä ei ole täydellistä 3 tavun ikkunaa.
+Jos sinulla on 2 tavun ikkuna, vaiheet 3 ja 4, jotka tuottavat tavut `output[2]` ja `output[3]`, muuttuvat hieman
+ja niistä tulee:
+
+- `output[2]` tuotetaan ottamalla `input[1]`:n 4 viimeistä bittiä ja siirtämällä ne kaksi paikkaa vasemmalle.
+- `output[3]` on merkki `'='`.
+
+
+Lopuksi, jos sinulla on yhden tavun ikkuna, vaiheet 2–4, jotka tuottavat tavut `output[1]`, `output[2]` ja `output[3]`, muuttuvat
+näin:
+
+- `output[1]` tuotetaan ottamalla `input[0]`:n kaksi viimeistä bittiä ja siirtämällä ne neljä paikkaa vasemmalle.
+- `output[2]` ja `output[3]` ovat merkki `=`.
+
+
+Jos nämä luettelomerkit olivat hieman hämmentäviä, taulukko @tbl-transf-6bit voi olla intuitiivisempi.
+Tämä taulukko yhdistää koko logiikan yksinkertaiseen taulukkoon. Huomaa, että
+taulukko antaa myös tarkan Zig-lausekkeen, joka luo vastaavan
+tavun tulosteessa.
+
+
+::: {#tbl-transf-6bit}
+
+| Ikkunassa olevien tavujen määrä | Tavun indeksi tulosteessa | Koodissa                                   |
+|---------------------------------|---------------------------|--------------------------------------------|
+| 3                               | 0                         | input[0] >> 2                              |
+| 3                               | 1                         | ((input[0] & 0x03) << 4) + (input[1] >> 4) |
+| 3                               | 2                         | ((input[1] & 0x0f) << 2) + (input[2] >> 6) |
+| 3                               | 3                         | input[2] & 0x3f                            |
+| 2                               | 0                         | input[0] >> 2                              |
+| 2                               | 1                         | ((input[0] & 0x03) << 4) + (input[1] >> 4) |
+| 2                               | 2                         | ((input[1] & 0x0f) << 2)                   |
+| 2                               | 3                         | '='                                        |
+| 1                               | 0                         | input[0] >> 2                              |
+| 1                               | 1                         | ((input[0] & 0x03) << 4)                   |
+| 1                               | 2                         | '='                                        |
+| 1                               | 3                         | '='                                        |
+
+: Miten 6 bitin muunnos muuttuu koodiksi eri ikkuna-asetuksissa.
+
+:::
+
+
+
+
+
+### Bittisiirrot Zigissä
+
+Bittisiirrot Zigissä toimivat samankaltaisesti kuin C:ssä.
+Kaikki C:ssä olevat bittioperaattorit ovat saatavilla Zigissä.
+Tässä base64-enkooderialgoritmissa ne ovat välttämättömiä
+halutun tuloksen tuottamiseksi.
+
+Jos et ole tuttu näiden operaattoreiden kanssa, ne ovat
+operaattoreita, jotka toimivat arvojesi bittitasolla.
+Tämä tarkoittaa, että operaattorit ottavat arvon muodostavat bitit
+ja muuttavat niitä jollain tavalla. Tämä muuttaa lopulta myös itse arvoa, koska arvon binääriesitys
+muuttuu.
+
+Olemme jo nähneet kuvassa @fig-encoder-bitshift bittisiirron tuottaman vaikutuksen.
+Mutta käytetään base64-enkooderin tulosteen ensimmäistä tavua toisena esimerkkinä siitä, mitä
+bittisiirto tarkoittaa. Tämä on helpoin neljästä tulosteen tavusta
+rakentaa. Tarvitsemme vain siirtää syötteen ensimmäisen tavun bitit kaksi paikkaa oikealle
+*bittisiirto oikealle* (`>>`) -operaattorilla.
+
+Jos otamme esimerkiksi merkkijonon "Hi", jota käytimme kuvassa @fig-base64-algo1, tämän merkkijonon ensimmäinen tavu on "H", joka on binäärimuodossa sekvenssi `01001000`.
+Jos siirrämme tämän tavun bitit kaksi paikkaa oikealle, tuloksena on sekvenssi `00010010`.
+Tämä binäärijono on desimaaliluku 18 ja heksadesimaalimuodossa arvo `0x12`.
+Huomaa, että "H":n 6 ensimmäistä bittiä siirtyivät tavun loppuun.
+Tällä operaatiolla saamme tulosteen ensimmäisen tavun.
+
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+const std = @import("std");
+pub fn main(init: std.process.Init) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    const input = "Hi";
+    try stdout.print("{d}\n", .{input[0] >> 2});
+    try stdout.flush();
+}
+```
+
+Jos muistat kuvan @fig-base64-algo1, tulosteessa olevan ensimmäisen tavun pitäisi
+vastata 6 bitin ryhmää `010010`. Vaikka ne näyttävät erilaisilta, sekvenssit `010010` ja `00010010` ovat semanttisesti yhtä suuret. Ne tarkoittavat samaa asiaa.
+Molemmat edustavat desimaalilukua 18 ja heksadesimaalimuodossa arvoa `0x12`.
+
+Älä siis ota "6 bitin ryhmä" -tekijää liian vakavasti. Emme välttämättä tarvitse
+6-bittistä sekvenssiä tuloksena. Kunhan 8-bittisen sekvenssin merkitys on sama
+kuin 6-bittisen sekvenssin, olemme kunnossa.
+
+
+
+### Tiettyjen bittien valitseminen `&`-operaattorilla
+
+Jos palaat kohtaan @sec-6bit-transf, näet, että tulosteen toisen ja kolmannen tavun tuottamiseksi
+meidän täytyy valita tiettyjä bittejä syötemerkkijonon ensimmäisestä ja toisesta tavusta. Mutta miten
+voimme tehdä sen? Vastaus perustuu *bittikohtaiseen ja* (`&`) -operaattoriin.
+
+Kuva @fig-encoder-bitshift on jo näyttänyt, minkä vaikutuksen tämä `&`-operaattori
+tuottaa operandiensa bitteihin. Tehdään siitä selkeä kuvaus.
+
+Yhteenvetona `&`-operaattori suorittaa loogisen konjunktion
+operandiensa bittien välillä. Tarkemmin sanottuna operaattori `&`
+vertaa ensimmäisen operandin jokaista bittiä vastaavaan toisen operandin bittiin.
+Jos molemmat bitit ovat 1, vastaava tulosbitti asetetaan arvoon 1.
+Muussa tapauksessa vastaava tulosbitti asetetaan arvoon 0 [@microsoftbitwiseand].
+
+Jos siis sovellamme tätä operaattoria binäärijonoihin `1000100` ja `00001101`,
+operaation tulos on binäärijono `00000100`. Ainoastaan
+kuudennessa kohdassa molemmissa binäärijonoissa oli arvo 1. Kaikissa
+kohdissa, joissa molemmat binäärijonot eivät olleet 1, tuloksena on
+0-bitti.
+
+Menetämme tässä tapauksessa tietoa alkuperäisistä bittiarvoista
+molemmista jonoista. Emme enää tiedä,
+tuottiko tämä 0-bitti tulosjonossa yhdistelmän 0 ja 0, 1 ja 0 vai 0 ja 1.
+
+Esimerkiksi: oletetaan, että sinulla on binäärijono `10010111`, joka on desimaaliluku 151. Miten
+saat uuden binäärijonon, joka sisältää vain tämän jonon kolmannen ja
+neljännen bitin?
+
+Sinun tarvitsee vain yhdistää tämä jono sekvenssiin `00110000` (heksadesimaalimuodossa `0x30`) käyttämällä `&`-operaattoria.
+Huomaa, että vain kolmas ja neljäs paikka tässä binäärijonossa on asetettu arvoon 1. Seurauksena vain
+kolmas ja neljäs arvo molemmista binäärijonoista säilyvät mahdollisesti tulosteessa. Kaikki muut paikat
+asetetaan nollaksi tulosjonossa, joka on `00010000` (desimaaliluku 16).
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+const std = @import("std");
+pub fn main(init: std.process.Init) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    const bits = 0b10010111;
+    try stdout.print("{d}\n", .{bits & 0b00110000});
+    try stdout.flush();
+}
+```
+
+
+
+### Tilavarauksen tekeminen tulosteelle
+
+Kuten kuvasin kohdassa @sec-stack, objektin tallentaminen pinolle
+edellyttää, että objektilla on tunnettu ja kiinteä pituus käännösaikana. Tämä on tärkeä
+rajoite base64-enkooderin/dekooderin tapauksessa. Tulosteen koko
+(sekä enkooderissa että dekooderissa) riippuu
+suoraan syötteen koosta.
+
+Tämä mielessä emme voi tietää käännösaikana
+enkooderin ja dekooderin tulosteen kokoa.
+Jos emme voi tietää tulosteen kokoa käännösaikana,
+emme voi tallentaa enkooderin ja dekooderin tulostetta pinolle.
+
+Sen vuoksi meidän täytyy tallentaa tämä tuloste keolle,
+ja kuten kommentoin kohdassa @sec-heap, voimme tallentaa objekteja keolle vain
+allokaattoriobjektien avulla.
+Yhden `encode()`- ja `decode()`-funktioiden argumenteista täytyy siis olla allokaattoriobjekti, koska
+tiedämme varmasti, että jossain vaiheessa näiden funktioiden rungossa
+meidän täytyy varata tilaa keosta
+funktioiden tulosteen tallentamiseksi.
+
+Siksi sekä `encode()`- että `decode()`-funktioilla, joita esittelen tässä kirjassa, on argumentti nimeltä `allocator`,
+joka saa syötteekseen allokaattoriobjektin, jonka tyyppi on Zig Standard Libraryn `std.mem.Allocator`.
+
+
+
+### `encode()`-funktion kirjoittaminen
+
+Nyt kun meillä on peruskäsitys siitä, miten bittioperaattorit toimivat ja miten
+ne auttavat meitä saavuttamaan haluamamme tuloksen, voimme kiteyttää
+kaiken logiikan, jonka kuvasimme kuvissa @fig-base64-algo1 ja @tbl-transf-6bit, siistiksi
+funktioksi, jonka voimme lisätä `Base64`-rakenteen määrittelyyn, jonka aloitimme kohdassa @sec-base64-table.
+
+Löydät `encode()`-funktion alta. Huomaa, että tämän funktion ensimmäinen argumentti
+on itse `Base64`-rakenne. Tämä argumentti signaloi siis selvästi,
+että funktio on `Base64`-rakenteen metodi.
+
+Koska `encode()`-funktio itsessään on melko pitkä,
+jätin tarkoituksella `Base64`-rakenteen määrittelyn pois tästä lähdekoodista
+lyhyyden vuoksi. Muista siis, että tämä funktio on `Base64`-rakenteen julkinen funktio (tai julkinen metodi).
+
+Lisäksi tällä `encode()`-funktiolla on kaksi muuta argumenttia:
+
+1. `input` on merkkijono, jonka haluat enkoodata base64-muotoon;
+1. `allocator` on allokaattoriobjekti tarvittavia muistivarauksia varten.
+
+Kuvasin kaiken, mitä sinun tarvitsee tietää allokaattoriobjekteista, kohdassa @sec-allocators.
+Jos et ole tuttu niiden kanssa, suosittelen palaamaan
+siihen osioon ja lukemaan sen.
+Katsomalla `encode()`-funktiota näet, että käytämme tätä
+allokaattoriobjektia varaamaan tarpeeksi muistia enkoodausprosessin
+tulosteen tallentamiseen.
+
+Funktion pääsilmukka vastaa koko syötemerkkijonon läpikäymisestä.
+Jokaisella iteraatiolla käytämme `count`-muuttujaa laskemaan, kuinka monta iteraatiota on
+tapahtunut. Kun `count` saavuttaa 3, yritämme enkoodata 3 merkkiä (tai tavua), jotka olemme keränneet
+väliaikaiseen puskuriobjektiin (`buf`).
+
+Kun olemme enkoodanneet nämä 3 merkkiä ja tallentaneet tuloksen `output`-muuttujaan, nollaamme
+`count`-muuttujan ja alamme laskea uudelleen seuraavalla silmukan iteraatiolla.
+Jos silmukka saavuttaa merkkijonon lopun ja `count`-muuttuja on alle 3, se tarkoittaa, että
+väliaikainen puskuri sisältää syötteen viimeiset 1 tai 2 tavua.
+Siksi for-silmukan jälkeen on kaksi `if`-lausetta. Ne käsittelevät kunkin mahdollisen tapauksen.
+
+
+```{zig}
+#| eval: false
+pub fn encode(self: Base64,
+              allocator: std.mem.Allocator,
+              input: []const u8) ![]u8 {
+
+    if (input.len == 0) {
+        return "";
+    }
+
+    const n_out = try _calc_encode_length(input);
+    var out = try allocator.alloc(u8, n_out);
+    var buf = [3]u8{ 0, 0, 0 };
+    var count: u8 = 0;
+    var iout: u64 = 0;
+
+    for (input, 0..) |_, i| {
+        buf[count] = input[i];
+        count += 1;
+        if (count == 3) {
+            out[iout] = self._char_at(buf[0] >> 2);
+            out[iout + 1] = self._char_at(
+                ((buf[0] & 0x03) << 4) + (buf[1] >> 4)
+            );
+            out[iout + 2] = self._char_at(
+                ((buf[1] & 0x0f) << 2) + (buf[2] >> 6)
+            );
+            out[iout + 3] = self._char_at(buf[2] & 0x3f);
+            iout += 4;
+            count = 0;
+        }
+    }
+
+    if (count == 1) {
+        out[iout] = self._char_at(buf[0] >> 2);
+        out[iout + 1] = self._char_at(
+            (buf[0] & 0x03) << 4
+        );
+        out[iout + 2] = '=';
+        out[iout + 3] = '=';
+    }
+
+    if (count == 2) {
+        out[iout] = self._char_at(buf[0] >> 2);
+        out[iout + 1] = self._char_at(
+            ((buf[0] & 0x03) << 4) + (buf[1] >> 4)
+        );
+        out[iout + 2] = self._char_at(
+            (buf[1] & 0x0f) << 2
+        );
+        out[iout + 3] = '=';
+        iout += 4;
+    }
+
+    return out;
+}
+```
+
+
+
+## Dekooderilogiikan rakentaminen {#sec-decoder-logic}
+
+Nyt voimme keskittyä base64-dekooderin logiikan kirjoittamiseen. Muista kuvasta @fig-base64-algo2, että
+base64-dekooderi tekee enkooderin käänteisen prosessin. Meidän täytyy siis vain
+kirjoittaa `decode()`-funktio, joka suorittaa kohdassa @sec-encoder-logic esittämäni prosessin käänteisen operaation.
+
+
+### Base64-merkkien kartoittaminen indekseihin {#sec-map-base64-index}
+
+Yksi asia, jonka meidän täytyy tehdä base64-enkoodatun viestin dekoodaamiseksi, on laskea
+jokaisen dekooderin syötteessä kohtaamamme base64-merkin indeksi base64-asteikossa.
+
+Toisin sanoen dekooderi saa syötteekseen base64-merkkijonon. Meidän täytyy
+muuntaa tämä merkkijono indeksijonoksi. Nämä indeksit
+ovat kunkin merkin indeksi base64-asteikossa. Näin saamme arvon/tavun,
+joka laskettiin enkooderiprosessin 6 bitin muunnosvaiheessa.
+
+Todennäköisesti on parempia/nopeampia tapoja laskea tämä, erityisesti "jaa ja hallitse" -tyyppisellä strategialla.
+Mutta toistaiseksi olen tyytyväinen yksinkertaiseen ja "brute force" -tyyppiseen strategiaan.
+Alla oleva `_char_index()`-funktio sisältää tämän strategian.
+
+Käymme käytännössä läpi base64-asteikon sisältävän *hakutaulun*
+ja vertaamme saamaamme merkkiä jokaiseen base64-asteikon merkkiin.
+Jos merkit täsmäävät, palautamme tämän merkin indeksin
+base64-asteikossa tuloksena.
+
+Huomaa, että jos syötemerkki on `'='`, funktio palauttaa indeksin 64, joka on
+asteikon "alueen ulkopuolella". Mutta kuten kuvasin kohdassa @sec-base64-scale,
+merkki `'='` ei kuulu itse base64-asteikkoon.
+Se on base64:ssä erityinen ja merkityksetön merkki.
+
+Huomaa myös, että tämä `_char_index()`-funktio on `Base64`-rakenteen metodi
+`self`-argumentin vuoksi. Olen jälleen jättänyt `Base64`-rakenteen määrittelyn pois tästä esimerkistä
+lyhyyden vuoksi.
+
+```{zig}
+#| eval: false
+fn _char_index(self: Base64, char: u8) u8 {
+    if (char == '=')
+        return 64;
+
+    var i: u8 = 0;
+    var output_index: u8 = 0;
+
+    while (i < 64) : (i += 1) {
+        if (self._char_at(i) == char)
+            break;
+        output_index += 1;
+    }
+
+    return output_index;
+}
+```
+
+
+
+### 6 bitin muunnos
+
+Jälleen kerran algoritmin ydinosa on 6 bitin muunnos.
+Jos ymmärrämme tarvittavat vaiheet tämän muunnoksen suorittamiseksi, loppu
+algoritmista on paljon helpompi.
+
+Ennen kuin siirrymme itse 6 bitin muunnokseen,
+meidän täytyy varmistaa, että käytämme `_char_index()`-funktiota base64-merkkijonon muuntamiseen
+indeksijonoksi. Alla oleva katkelma on tärkeä tätä työtä varten.
+`_char_index()`-funktion tulos tallennetaan väliaikaiseen puskuriin, ja tätä väliaikaista puskuria
+käytämme 6 bitin muunnoksessa `input`-objektin sijaan.
+
+```{zig}
+#| eval: false
+for (0..input.len) |i| {
+    buf[i] = self._char_index(input[i]);
+}
+```
+
+Sen sijaan, että tuottaisimme 4 tavua (tai 4 merkkiä) tulosteena jokaista 3 merkin ikkunaa syötteessä,
+base64-dekooderi tuottaa 3 tavua (tai 3 merkkiä) tulosteena jokaista 4 merkin ikkunaa syötteessä.
+Jälleen kerran kyseessä on käänteinen prosessi.
+
+Tulosteen 3 tavun tuottamisen vaiheet ovat siis:
+
+1. `output[0]` tuotetaan laskemalla yhteen kaksi komponenttia. Ensin siirretään `buf[0]`:n bitit kaksi paikkaa vasemmalle. Toiseksi siirretään `buf[1]`:n bitit 4 paikkaa oikealle. Lasketaan nämä komponentit yhteen.
+1. `output[1]` tuotetaan laskemalla yhteen kaksi komponenttia. Ensin siirretään `buf[1]`:n bitit neljä paikkaa vasemmalle. Toiseksi siirretään `buf[2]`:n bitit 2 paikkaa oikealle. Lasketaan nämä komponentit yhteen.
+1. `output[2]` tuotetaan laskemalla yhteen kaksi komponenttia. Ensin siirretään `buf[2]`:n bitit kuusi paikkaa vasemmalle. Sitten lasket tuloksen yhteen `buf[3]`:n kanssa.
+
+
+Ennen kuin jatkamme, yritetään visualisoida, miten nämä muunnokset palauttavat alkuperäiset tavut, jotka meillä oli
+ennen enkoodausprosessia. Ajattele ensin takaisin kohdassa @sec-encoder-logic esitettyä enkooderin suorittamaa 6 bitin muunnosta.
+Enkooderin tulosteen ensimmäinen tavu tuotetaan siirtämällä syötteen ensimmäisen tavun bitit kaksi paikkaa oikealle.
+
+Jos esimerkiksi enkooderin syötteen ensimmäinen tavu oli sekvenssi `ABCDEFGH`, enkooderin tulosteen ensimmäinen tavu olisi
+`00ABCDEF` (tämä sekvenssi olisi dekooderin syötteen ensimmäinen tavu). Jos enkooderin syötteen toinen tavu oli sekvenssi
+`IJKLMNOP`, enkooderin tulosteen toinen tavu olisi `00GHIJKL` (kuten demonstroimme kuvassa @fig-encoder-bitshift).
+
+Jos siis sekvenssit `00ABCDEF` ja `00GHIJKL` ovat dekooderin syötteen ensimmäinen ja toinen tavu, kuva
+@fig-decoder-bitshift demonstroi visuaalisesti, miten nämä kaksi tavua muunnetaan dekooderin tulosteen ensimmäiseksi tavuksi.
+Huomaa, että tulosteen tavu on sekvenssi `ABCDEFGH`, joka on enkooderin syötteen alkuperäinen tavu.
+
+![Miten dekooderin tulosteen 1. tavu tuotetaan syötteen 1. tavusta (tummanvioletti) ja 2. tavusta (oranssi)](../Figures/base64-decoder-bit-shift.png){#fig-decoder-bitshift}
+
+Taulukko @tbl-6bit-decode esittää, miten aiemmin kuvatut kolme vaihetta muuttuvat Zig-koodiksi:
+
+
+
+::: {#tbl-6bit-decode}
+
+| Tavun indeksi tulosteessa | Koodissa                      |
+|---------------------------|-------------------------------|
+| 0                         | (buf[0] << 2) + (buf[1] >> 4) |
+| 1                         | (buf[1] << 4) + (buf[2] >> 2) |
+| 2                         | (buf[2] << 6) + buf[3]        |
+
+: Tarvittavat vaiheet 6 bitin muunnokseen dekoodausprosessissa.
+
+
+:::
+
+
+
+
+
+
+### `decode()`-funktion kirjoittaminen
+
+Alla oleva `decode()`-funktio sisältää koko dekoodausprosessin.
+Laskemme ensin tulosteen koon funktiolla
+`_calc_decode_length()` ja varaamme sitten tarpeeksi muistia tälle tulosteelle
+allokaattoriobjektilla.
+
+Luomme kolme väliaikaista muuttujaa: 1) `count` ikkunalaskurin pitämiseen
+jokaisella for-silmukan iteraatiolla; 2) `output_index` nykyisen indeksin pitämiseen tulosteessa;
+3) `tmp_buffer`, joka on väliaikainen puskuri base64-indekseille, jotka
+muunnetaan 6 bitin muunnoksella.
+
+Sitten jokaisella for-silmukan iteraatiolla täytämme väliaikaisen puskurin nykyisellä
+tavuikkunalla. Kun `count` saavuttaa luvun 4, meillä on täysi
+indeksi-ikkuna `tmp_buffer`-puskurissa muunnettavaksi, ja sovellamme sitten 6 bitin muunnosta
+väliaikaisen puskurin päälle.
+
+Huomaa, että tarkistamme, ovatko väliaikaisen puskurin indeksit 2 ja 3 luku 64, joka, jos muistat
+kohdasta @sec-map-base64-index, on tilanne, jossa `_calc_index()`-funktio saa syötteekseen merkin `'='`.
+Jos nämä indeksit ovat yhtä suuria kuin luku 64, `decode()`-funktio tietää,
+että se voi yksinkertaisesti ohittaa nämä indeksit. Niitä ei muunneta, koska kuten kuvasin aiemmin,
+merkillä `'='` ei ole merkitystä, vaikka se merkitsee merkityksellisten merkkien loppua jonossa.
+Voimme siis turvallisesti ohittaa ne, kun ne esiintyvät jonossa.
+
+```{zig}
+#| eval: false
+fn decode(self: Base64,
+          allocator: std.mem.Allocator,
+          input: []const u8) ![]u8 {
+
+    if (input.len == 0)
+        return "";
+
+    const n_output = try _calc_decode_length(input);
+    var tmp_buffer = [4]u8{ 0, 0, 0, 0 };
+    var count: u8 = 0;
+    var output_index: u64 = 0;
+    var output = try allocator.alloc(u8, n_output);
+    @memset(output[0..], 0);
+
+    for (0..input.len) |i| {
+        tmp_buffer[count] = self._char_index(input[i]);
+        count += 1;
+        if (count == 4) {
+            output[output_index] = (tmp_buffer[0] << 2) + (tmp_buffer[1] >> 4);
+            if (tmp_buffer[2] != 64) {
+                output[output_index + 1] = (tmp_buffer[1] << 4) + (tmp_buffer[2] >> 2);
+            }
+            if (tmp_buffer[3] != 64) {
+                output[output_index + 2] = (tmp_buffer[2] << 6) + tmp_buffer[3];
+            }
+            output_index += 3;
+            count = 0;
+        }
+    }
+
+    return output;
+}
+```
+
+
+## Lopputulos
+
+Nyt kun meillä on sekä `decode()` että `encode()` toteutettuna, meillä on täysin toimiva
+base64-enkooderi/dekooderi toteutettuna Zigillä. Tässä on käyttöesimerkki
+`Base64`-rakenteestamme `encode()`- ja `decode()`-metodeilla, jotka olemme toteuttaneet.
+
+```{zig}
+#| eval: false
+var memory_buffer: [1000]u8 = undefined;
+var fba = std.heap.FixedBufferAllocator.init(
+    &memory_buffer
+);
+const allocator = fba.allocator();
+
+const text = "Testing some more stuff";
+const etext = "VGVzdGluZyBzb21lIG1vcmUgc3R1ZmY=";
+const base64 = Base64.init();
+const encoded_text = try base64.encode(
+    allocator, text
+);
+const decoded_text = try base64.decode(
+    allocator, etext
+);
+try stdout.print(
+    "Encoded text: {s}\n", .{encoded_text}
+);
+try stdout.print(
+    "Decoded text: {s}\n", .{decoded_text}
+);
+try stdout.flush();
+```
+
+```
+Encoded text: VGVzdGluZyBzb21lIG1vcmUgc3R1ZmY=
+Decoded text: Testing some more stuff
+```
+
+Voit myös nähdä koko lähdekoodin kerralla vierailemalla tämän kirjan virallisessa repositoriossa[^repo].
+Tarkemmin sanottuna `ZigExamples`-kansiossa[^zig-base64-algo].
+
+[^repo]: <https://github.com/pedropark99/zig-book>

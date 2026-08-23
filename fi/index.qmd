@@ -4,8 +4,8 @@ knitr: true
 syntax-definition: "../Assets/zig.xml"
 translation:
   source: index.qmd
-  source_sha256: ""
-  status: draft
+  source_sha256: 68ae1fb807788810d646ac50dbf4e6028b497712e81fd27efbe9a9e560490708
+  status: complete
 ---
 
 ```{r}
@@ -17,16 +17,175 @@ knitr::opts_chunk$set(
 )
 ```
 
+
+
 :::: {.content-hidden when-format="epub"}
 ::: {.content-hidden when-format="pdf"}
 
 # Tervetuloa {.unnumbered}
 
-Tervetuloa! Tämä on avoimen pääsyn HTML-versio kirjasta *Johdatus Zig:iin: projektipohjainen kirja*.
-Alkuperäisen kirjan on kirjoittanut [Pedro Duarte Faria](https://pedro-faria.netlify.app/);
-tämä suomenkielinen versio on käännöstyö.
+Tervetuloa! Tämä on kirjan *Johdatus Zig:iin: projektipohjainen kirja* avoimen pääsyn HTML-version aloitussivu.
+Kirjan on kirjoittanut [Pedro Duarte Faria](https://pedro-faria.netlify.app/).
+Tämä on avoin kirja, joka tarjoaa johdatuksen [Zig-ohjelmointikieleen](https://ziglang.org/),
+joka on uusi yleiskäyttöinen matalan tason kieli vankkaan ja optimaaliseen ohjelmistokehitykseen.
 
-> **Huom:** Suomennos on kesken. Katso käännöksen tila: `scripts/translation-status.sh`
+## Tue projektia! {.unnumbered}
+
+Jos pidät tästä projektista ja haluat tukea sitä, voit ostaa kirjan PDF-, e-kirja- tai painetun version
+joko Amazonista tai Leanpubista:
+
+{{< include ./Assets/button.html >}}
+
+{{< include ./Assets/leanpub-button.html >}}
+
+
+### Lahjoitukset suoraan
+
+Voit myös lahjoittaa haluamasi summan suoraan projektin tekijälle seuraavilla tavoilla:
+
+- PayPal-lahjoitus.
+- Revolut.
+
+Nämä ovat hyviä tapoja tukea suoraan projektin tekijää, mikä auttaa tuottamaan lisää tällaista sisältöä
+ja mahdollistaa tekijän jatkuvan työn hyödyllisten työkalujen ja materiaalien parissa yhteisölle.
+
+### PayPal
+
+{{< include ./Assets/paypal-button.html >}}
+
+### Revolut
+
+Voit lähettää rahaa Swift-maksulla seuraavilla pankki- ja Swift-tiedoilla:
+
+```
+Recipient: Pedro Duarte Faria
+BIC/SWIFT Code: REVOSGS2
+Account number: 6124512226
+Name and address of the bank: Revolut Technologies Singapore Pte. Ltd, 6 Battery Road, Floor 6-01, 049909, Singapore, Singapore
+Corresponding BIC: CHASGB2L
+```
+
+Jos sinulla on Revolut-tili, voit skannata seuraavan QR-koodin:
+
+{{< include ./Assets/revolut-button.html >}}
 
 :::
 ::::
+
+
+## Tietoa kirjasta {.unnumbered}
+
+Tämä on avoin (eli avoimen lähdekoodin), tekninen ja johdatteleva kirja [Zig-ohjelmointikielelle](https://ziglang.org/),
+joka on uusi yleiskäyttöinen matalan tason ohjelmointikieli optimaalisen ja vankan ohjelmistokehityksen tueksi.
+
+Kirjan virallinen repositorio: <https://github.com/pedropark99/zig-book>.
+
+Kirja on suunnattu sekä aloittelijoille että kokeneille kehittäjille. Se tutustuttaa Zigin jännittävään maailmaan pienten
+ja yksinkertaisten projektien kautta (samantyyppisessä hengessä kuin Eric Matthesin tunnetussa kirjassa *Python Crash Course*).
+Joitakin näistä projekteista ovat: Base64-kooderi/dekooderi, HTTP-palvelin ja kuvasuodatin.
+
+Kirjan edetessä opit:
+
+- Kielen syntaksin ja sen vertailun C:hen, C++:aan ja Rustiin.
+- Tietorakenteet, muistinallokaattorit, tiedostojärjestelmän ja I/O:n.
+- Optionaalit uutena paradigmana null-arvojen käsittelyyn.
+- Zig-sovelluksen testaamisen ja virheenjäljityksen.
+- Virheet arvoina ja niiden käsittelyn.
+- C- ja Zig-koodin kääntämisen kielen sisäänrakennetulla build-järjestelmällä.
+- Zigin yhteentoimivuuden C:n kanssa.
+- Rinnakkaisuuden säikeillä ja SIMD:llä.
+- Ja paljon muuta.
+
+
+## Tietoa tekijästä {.unnumbered}
+
+Pedro Duarte Farialla on kandidaatin tutkinto taloustieteessä Federal University of Ouro Pretosta – Brasiliasta.
+Tällä hetkellä hän työskentelee vanhempana data-insinöörinä yrityksessä [DSM-Firmenich](https://www.dsm-firmenich.com)[^dsm] ja
+on Databricks Certified Associate Developer for Apache Spark 3.0.
+
+
+[^dsm]: <https://www.dsm-firmenich.com>
+
+Tekijällä on yli neljän vuoden kokemus data-alalta data-tuotteiden, putkien,
+raporttien ja analyysien kehittämisestä tutkimuslaitoksille ja joillekin Brasilian
+rahoitusalan suurimmista yrityksistä, kuten BMG Bankille, Sodexolle ja Pan Bankille.
+
+Pedro on kuitenkin myös intohimoinen ohjelmistokehittäjä, joka rakastaa oppia ja opettaa ohjelmoinnista.
+Vaikka Pedro käyttää työssään monia eri kieliä, hän on erikoistunut R-ohjelmointikieleen ja on pitänyt useita
+luentoja ja kursseja siitä, muun muassa jatko-opiskelukeskuksissa (kuten PPEA-UFOP^[<https://ppea.ufop.br/>])
+sekä liittovaltion ja osavaltion organisaatioissa (kuten FJP-MG^[<http://fjp.mg.gov.br/>]).
+
+
+Henkilökohtainen verkkosivusto: <https://pedro-faria.netlify.app/>
+
+LinkedIn: <https://www.linkedin.com/in/pedro-faria-a68140209/>
+
+Mastodon: [\@pedropark99\@fosstodon.org](https://fosstodon.org/@pedropark99)
+
+Twitter (X): [\@PedroPark9](https://twitter.com/PedroPark9)
+
+## Lisenssi {.unnumbered}
+
+Copyright © 2025 Pedro Duarte Faria. Tämä kirja on lisensoitu [CC-BY 4.0 Creative Commons Attribution 4.0 International Public License](https://creativecommons.org/licenses/by/4.0/)[^cc-license] -lisenssillä.
+
+[^cc-license]: <https://creativecommons.org/licenses/by/4.0/>
+
+![](../Figures/creative-commoms-88x31.png){width=88px}
+
+
+## Kirjan kokoamistiedot {.unnumbered}
+
+Tämä kirja on koottu käyttäen seuraavia [Zig](https://ziglang.org)- ja [Quarto](https://quarto.org)-versioita:
+
+```{r}
+#| echo: false
+#| results: 'asis'
+source("../Scripts/zig-quarto-versions.R")
+```
+
+## Kirjan viittaus {.unnumbered}
+
+Voit viitata tähän kirjaan seuraavalla BibTeX-merkinnällä:
+
+```
+@book{pedro2024,
+    author = {Pedro Duarte Faria},
+    title = {Introduction to Zig},
+    subtitle = {a project-based book},
+    month = {October},
+    edition = {1},
+    year = {2024},
+    address = {Belo Horizonte},
+    url = {https://github.com/pedropark99/zig-book}
+}
+```
+
+## Vastaava tekijä ja ylläpitäjä {.unnumbered}
+
+Pedro Duarte Faria
+
+Yhteystiedot: [pedropark99\@gmail.com](mailto:pedropark99@gmail.com)
+
+Henkilökohtainen verkkosivusto: <https://pedro-faria.netlify.app/>
+
+
+## Kiitokset {.unnumbered}
+
+Tämä kirja on myös monien keskustelujen ja vaihtojen tulosta, joita kävimme
+eri Zig-yhteisön jäsenten kanssa. Minä (Pedro Duarte Faria) olen erittäin
+kiitollinen näistä keskusteluista sekä joistakin suorista panoksista, joita saimme.
+Alla on luettelo mukana olleista henkilöistä (henkilön nimi ja GitHub-käyttäjänimi):
+
+```{r}
+#| echo: false
+#| results: "asis"
+c <- read.csv("../Assets/contributors.txt")
+n <- nrow(c)
+user_names <- sprintf("(%s)", c$user_name)
+user_names <- gsub("@", "\\\\@", user_names)
+vec <- vector("character", n)
+for (i in seq_len(n)) {
+    vec[i] <- paste(c$name[i], user_names[i])
+}
+cat(paste(vec, collapse = ", "), sep = "\n")
+```
