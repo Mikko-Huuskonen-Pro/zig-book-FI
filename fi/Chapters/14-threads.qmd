@@ -1,0 +1,1052 @@
+---
+translation:
+  source: Chapters/14-threads.qmd
+  source_sha256: dc92999a62f98b0864e580de6da45d9e6872ec2cf349e513a4ac97750647f72b
+  status: complete
+---
+
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+---
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+# Säikeiden ja rinnakkaisuuden esittely Zigissä {#sec-thread}
+
+Säikeet ovat saatavilla Zigissä Zig Standard Libraryn `Thread`-structin kautta.
+Tämä struct edustaa kernel-säiettä, ja se noudattaa POSIX Thread -mallia,
+eli se toimii samankaltaisesti kuin `pthread`-C-kirjaston säie, joka on yleensä saatavilla
+missä tahansa GNU C Compilerin (`gcc`) jakelussa. Jos et tunne säikeitä, annan sinulle ensin hieman teoriaa, sopiiko?
+
+
+## Mitä säikeet ovat? {#sec-what-thread}
+
+Säie on pohjimmiltaan erillinen suorituskonteksti.
+Käytämme säikeitä tuomaan rinnakkaisuutta ohjelmaamme,
+mikä useimmissa tapauksissa nopeuttaa ohjelman suoritusta, koska useita tehtäviä
+suoritetaan samaan aikaan rinnakkain toistensa kanssa.
+
+Ohjelmat ovat oletuksena yleensä yksisäikeisiä. Tämä tarkoittaa, että jokainen ohjelma
+käyttää yleensä yhtä säiettä eli yhtä suorituskontekstia. Kun meillä on vain yksi säie käynnissä, meillä ei ole
+rinnakkaisuutta. Ja kun meillä ei ole rinnakkaisuutta, komennot suoritetaan peräkkäin, eli
+vain yksi komento suoritetaan kerrallaan, yksi toisensa jälkeen. Luomalla useita säikeitä ohjelmaamme
+aloitamme useiden komentojen suorittamisen samaan aikaan.
+
+Ohjelmat, jotka luovat useita säikeitä, ovat hyvin yleisiä käytännössä. Koska monenlaiset
+sovellukset sopivat hyvin rinnakkaisuuteen. Hyviä esimerkkejä ovat video- ja kuvankäsittelysovellukset
+(esim. Adobe Photoshop tai DaVinci Resolve), pelit (esim. The Witcher 3) sekä verkkoselaimet
+(esim. Google Chrome, Firefox, Microsoft Edge jne.).
+Esimerkiksi verkkoselaimissa säikeitä käytetään yleensä välilehtien toteuttamiseen.
+Verkkoselaimen välilehdet toimivat yleensä erillisinä säikeinä selaimen pääprosessissa.
+Eli jokainen uusi välilehti, jonka avaat verkkoselaimessasi,
+käyttää yleensä erillistä suorituskontekstia.
+
+Kun jokainen välilehti toimii erillisessä säikeessä, kaikkien avoinna olevien välilehtien sallitaan toimia samaan aikaan
+ja toisistaan riippumatta. Esimerkiksi sinulla voi olla YouTube tai Spotify avoinna
+välilehdessä, ja kuuntelet siinä podcastia samalla kun
+työskentelet toisessa välilehdessä kirjoittaessasi esseetä Google Docsissa. Vaikka et katso
+YouTube-välilehteä, voit silti kuulla podcastin vain siksi, että tämä YouTube-välilehti toimii rinnakkain
+toisen välilehden kanssa, jossa Google Docs on käynnissä.
+
+Ilman säikeitä vaihtoehto olisi ajaa jokainen välilehti täysin erillisenä
+prosessina tietokoneellasi. Mutta se olisi huono valinta, koska jo muutama välilehti kuluttaisi
+liikaa tehoa ja resursseja tietokoneeltasi. Toisin sanoen, täysin uuden prosessin luominen on hyvin kallista
+verrattuna uuden suorituskontekstin luomiseen. Lisäksi todennäköisyys kokea viivettä ja ylikuormitusta
+selainta käyttäessä olisi merkittävä. Säikeet ovat nopeampia luoda, ja ne kuluttavat myös
+paljon, paljon vähemmän resursseja tietokoneelta, erityisesti koska ne jakavat osan resursseista
+pääprosessin kanssa.
+
+Siksi juuri säikeiden käyttö nykyaikaisissa verkkoselaimissa mahdollistaa podcastin kuuntelemisen
+samaan aikaan kun kirjoitat jotain Google Docsissa.
+Ilman säikeitä verkkoselain olisi todennäköisesti rajoitettu vain yhteen välilehteen.
+
+Säikeet sopivat myös hyvin kaikkeen, mikä liittyy pyyntöjen tai tilausten käsittelyyn.
+Koska pyynnön käsittely vie aikaa, ja siihen liittyy yleensä paljon "odotusaikaa".
+Toisin sanoen vietämme paljon aikaa joutilaana odottaen jonkin valmistumista.
+Esimerkiksi ajattele ravintolaa. Tilausten käsittely ravintolassa sisältää yleensä
+seuraavat vaiheet:
+
+1. vastaanota tilaus asiakkaalta.
+1. välitä tilaus keittiöön ja odota ruoan valmistumista.
+1. aloita ruoan valmistus keittiössä.
+1. kun ruoka on täysin valmis, toimita ruoka asiakkaalle.
+
+Jos ajattelet yllä olevia kohtia, huomaat, että yksi suuri odotushetki
+on läsnä koko prosessissa, eli sillä aikaa kun ruokaa valmistetaan
+keittiössä. Ruokaa valmistettaessa sekä tarjoilija että asiakas
+itse odottavat ruoan valmistumista ja toimitusta.
+
+Jos kirjoittaisimme ohjelman, joka edustaa tätä ravintolaa, tarkemmin sanottuna yksisäikeisen ohjelman, tämä
+ohjelma olisi hyvin tehoton. Koska ohjelma pysyisi joutilaana odottaen huomattavan pitkän
+ajan "tarkista onko ruoka valmis" -vaiheessa. Alla on esimerkki koodinpätkästä, joka voisi
+mahdollisesti edustaa tällaista ohjelmaa.
+
+Ongelma tässä ohjelmassa on while-silmukka. Tämä ohjelma viettää paljon aikaa
+odotellen while-silmukassa tekemättä muuta kuin tarkistamalla, onko ruoka valmis.
+Tämä on ajankulutusta. Sen sijaan, että odottaisi jotain tapahtuvan, tarjoilija
+voisi vain lähettää tilauksen keittiöön, jatkaa eteenpäin ja vastaanottaa
+lisää tilauksia muilta asiakkailta ja lähettää lisää tilauksia keittiöön sen sijaan,
+että ei tekisi mitään ja odottaisi ruoan valmistumista.
+
+```{zig}
+#| eval: false
+#| build_type: "lib"
+#| auto_main: true
+const order = Order.init("Pizza Margherita", n = 1);
+const waiter = Waiter.init();
+waiter.receive_order(order);
+waiter.ask_kitchen_to_cook();
+var food_not_ready = true;
+while (food_not_ready) {
+    food_not_ready = waiter.is_food_ready();
+}
+const food = waiter.get_food_from_kitchen();
+waiter.send_food_to_client(food);
+```
+
+Siksi säikeet sopisivat erinomaisesti tähän ohjelmaan. Voisimme käyttää säikeitä
+vapauttamaan tarjoilijat "odotustehtävistään", jotta he voivat jatkaa
+muita tehtäviään ja vastaanottaa lisää tilauksia. Katso seuraavaa esimerkkiä, jossa olen kirjoittanut yllä olevan
+ohjelman uudelleen käyttäen säikeitä tilauksien valmistukseen ja toimittamiseen.
+
+Tässä ohjelmassa näet, että kun tarjoilija vastaanottaa uuden tilauksen
+asiakkaalta, tämä tarjoilija suorittaa `send_order()`-funktion.
+Ainoa asia, jonka tämä funktio tekee, on luoda uusi säie
+ja irrottaa se. Koska säikeen luominen on hyvin nopea operaatio,
+tämä `send_order()`-funktio palaa lähes välittömästi,
+joten tarjoilija käyttää lähes ollenkaan aikaa tilaukseen ja voi
+jatkaa eteenpäin ja yrittää saada seuraavan tilauksen asiakkailta.
+
+Luodussa uudessa säikeessä keittäjä valmistaa tilauksen, ja kun
+ruoka on valmis, se toimitetaan asiakkaan pöytään.
+
+
+```{zig}
+#| eval: false
+fn cook_and_deliver_order(order: *Order) void {
+    const chef = Chef.init();
+    const food = chef.cook(order.*);
+    chef.deliver_food(food);
+}
+fn send_order(order: Order) void {
+    const cook_thread = Thread.spawn(
+        .{}, cook_and_deliver_order, .{&order}
+    );
+    cook_thread.detach();
+}
+
+const waiter = Waiter.init();
+while (true) {
+    const order = waiter.get_new_order();
+    if (order) {
+        send_order(order);
+    }
+}
+```
+
+
+
+## Säikeet verrattuna prosesseihin
+
+Kun ajamme ohjelman, tämä ohjelma suoritetaan käyttöjärjestelmässä *prosessina*.
+Tämä on yhden suhde yhteen - jokainen ajamasi ohjelma tai sovellus
+on erillinen prosessi käyttöjärjestelmässä. Mutta jokainen ohjelma tai jokainen prosessi
+voi luoda ja sisältää useita säikeitä. Siksi
+prosessien ja säikeiden välillä on yhden suhde moneen -suhde.
+
+Tämä tarkoittaa myös, että jokainen luomasi säie liittyy aina tiettyyn prosessiin tietokoneellasi.
+Toisin sanoen säie on aina olemassa olevan prosessin osajoukko (tai lapsi).
+Kaikki säikeet jakavat osan resursseista, jotka liittyvät prosessiin, josta ne luotiin.
+Ja koska säikeet jakavat resursseja prosessin kanssa, ne sopivat erinomaisesti tehtävien välisen
+kommunikaation helpottamiseen.
+
+Esimerkiksi oletetaan, että kehität suurta ja monimutkaista sovellusta,
+joka olisi paljon yksinkertaisempi, jos voisit jakaa sen kahteen osaan ja saada nämä kaksi erillistä osaa
+kommunikoimaan keskenään. Jotkut ohjelmoijat valitsevat kirjoittaa nämä kaksi koodipohjan osaa
+täysin erillisinä ohjelmina ja käyttävät sitten IPC:tä (*inter-process communication*, prosessien välinen viestintä)
+saadakseen nämä kaksi erillistä ohjelmaa/prosessia kommunikoimaan keskenään ja toimimaan yhdessä.
+
+Jotkut ohjelmoijat kuitenkin pitävät IPC:tä vaikeana käsitellä ja sen seurauksena
+he mieluummin kirjoittavat yhden osan koodipohjasta "ohjelman pääosana"
+eli osana koodia, joka toimii prosessina käyttöjärjestelmässä,
+kun taas toisen osan koodipohjasta he kirjoittavat tehtäväksi, joka suoritetaan
+uudessa säikeessä. Prosessi ja säie voivat helposti kommunikoida keskenään
+sekä ohjausvirran että datan kautta, koska ne jakavat ja niillä on
+pääsy samoihin standarditiedostokuvauksiin (`stdout`, `stdin`, `stderr`) sekä
+samaan muistitilaan keossa ja globaalissa dataosiossa.
+
+
+Tarkemmin sanottuna jokaiselle luomallesi säikeelle varataan erillinen pinon kehys juuri tätä säiettä varten,
+mikä käytännössä tarkoittaa, että jokainen tässä säikeessä luomasi paikallinen olio on paikallinen kyseiselle
+säikeelle, eli muut säikeet eivät näe tätä paikallista oliota. Ellei luomasi olio
+ole olio, joka elää keossa. Toisin sanoen, jos tähän olioon liittyvä muisti
+on keossa, muut säikeet voivat mahdollisesti käyttää tätä oliota.
+
+Siksi pinossa tallennetut oliot ovat paikallisia säikeelle, jossa ne luotiin.
+Mutta keossa tallennetut oliot ovat mahdollisesti muiden säikeiden saatavilla. Kaikki tämä tarkoittaa, että
+jokaisella säikeellä on oma erillinen pinon kehyksensä, mutta samalla kaikki säikeet jakavat
+saman keon, samat standarditiedostokuvaukset (mikä tarkoittaa, että ne jakavat saman `stdout`-, `stdin`- ja `stderr`-kanavan)
+sekä saman globaalin dataosion ohjelmassa.
+
+
+
+## Säikeen luominen
+
+Luomme uusia säikeitä Zigissä tuomalla ensin `Thread`-structin
+nykyiseen Zig-moduuliimme ja kutsumalla sitten tämän structin `spawn()`-metodia,
+joka luo (tai "spawnaa") uuden suorituskontekstin nykyisestä prosessistamme.
+Tällä metodilla on kolme argumenttia, jotka ovat vastaavasti:
+
+1. `SpawnConfig`-olio, joka sisältää spawn-prosessin asetukset.
+1. sen funktion nimi, joka suoritetaan (tai jota "kutsutaan") tässä uudessa säikeessä.
+1. lista argumenteista (tai syötteistä), jotka välitetään toisessa argumentissa annetulle funktiolle.
+
+Näillä kolmella argumentilla voit hallita, miten säie luodaan, ja määrittää myös, mitä
+työtä (tai "tehtäviä") suoritetaan tässä uudessa säikeessä. Säie on vain erillinen suorituskonteksti,
+ja luomme yleensä uusia säikeitä koodissamme, koska haluamme suorittaa työtä tässä
+uudessa suorituskontekstissa. Ja määritämme, mitä tarkalleen työtä tai mitä tarkalleen vaiheita
+suoritetaan tässä kontekstissa antamalla funktion nimen `spawn()`-metodin toisena argumenttina.
+
+Kun tämä uusi säie luodaan, `spawn()`-metodille antamasi funktio
+kutsutaan tai suoritetaan tässä uudessa säikeessä. Voit hallita
+argumentteja tai syötteitä, jotka välitetään tälle funktiolle kun sitä kutsutaan, antamalla
+listan argumenteista (tai listan syötteistä) `spawn()`-metodin kolmantena argumenttina.
+Nämä argumentit välitetään funktiolle samassa järjestyksessä kuin ne
+annetaan `spawn()`-metodille.
+
+Lisäksi `SpawnConfig` on struct-olio, jossa on vain kaksi mahdollista kenttää eli kaksi mahdollista jäsentä, joita
+voit asettaa räätälöidäksesi spawn-käyttäytymistä. Nämä kentät ovat:
+
+- `stack_size`: voit antaa `usize`-arvon määrittääksesi säikeen pinon kehyksen koon (tavuina). Oletusarvo on: $16 \times 1024 \times 1024$.
+- `allocator`: voit antaa allokointioliota, jota käytetään säikeelle muistia varattaessa.
+
+Käyttääksesi jotakin näistä kahdesta kentästä (tai "asetuksesta"), sinun täytyy vain luoda uusi `SpawnConfig`-tyyppinen olio
+ja antaa tämä olio syötteeksi `spawn()`-metodille. Mutta jos et ole kiinnostunut käyttämään
+jotakin näistä asetuksista ja olet tyytyväinen oletuksiin, voit antaa anonyymin
+struct-literaalin (`.{}`) tämän `SpawnConfig`-argumentin sijasta.
+
+Ensimmäisenä ja hyvin yksinkertaisena esimerkkinä harkitse alla olevaa koodia.
+Saman ohjelman sisällä voit luoda useita suorituskonteksteja, jos haluat.
+Mutta tässä ensimmäisessä esimerkissä luomme vain yhden suorituskontekstin, koska
+kutsumme `spawn()`-metodia vain kerran.
+
+Huomaa myös tässä esimerkissä, että suoritamme funktion `do_some_work()`
+uudessa säikeessä. Koska tämä funktio ei vastaanota syötteitä, koska sillä
+ei ole argumentteja, olemme antaneet tässä tapauksessa tyhjän listan eli tarkemmin sanottuna
+tyhjän anonyymin structin (`.{}`) `spawn()`-metodin kolmantena argumenttina.
+
+
+```{zig}
+#| eval: true
+#| auto_main: false
+#| build_type: "run"
+const std = @import("std");
+const Thread = std.Thread;
+const duration = std.Io.Duration.fromSeconds(1);
+const clock: std.Io.Clock = .awake;
+
+fn do_some_work(io: std.Io) !void {
+    std.debug.print("Starting the work.\n", .{});
+    try std.Io.sleep(io, duration, clock);
+    std.debug.print("Finishing the work.\n", .{});
+}
+
+pub fn main(init: std.process.Init) !void {
+    const thread = try Thread.spawn(.{}, do_some_work, .{init.io});
+    thread.join();
+}
+```
+
+Huomaa `try`-käyttö `spawn()`-metodia kutsuttaessa. Tämä tarkoittaa,
+että tämä metodi voi joissakin olosuhteissa palauttaa virheen. Yksi olosuhteista
+on, kun yrität luoda uuden säikeen, vaikka olet jo
+luonut liikaa (eli olet ylittänyt järjestelmäsi samanaikaisten säikeiden kiintiön).
+
+Mutta jos uusi säie luodaan onnistuneesti, `spawn()`-metodi palauttaa käsittelijäolion
+(joka on vain `Thread`-tyyppinen olio) tähän uuteen säikeeseen. Voit käyttää
+tätä käsittelijäoliota hallitaksesi säikeen kaikkia osa-alueita.
+
+Kun säie luodaan, `spawn()`-metodille antamasi funktio
+kutsutaan (eli sitä kutsutaan) aloittamaan suoritus tässä uudessa säikeessä.
+Toisin sanoen joka kerta kun kutsut `spawn()`-metodia, ei vain luoda uutta säiettä,
+vaan myös tämän säikeen "aloita työ" -painiketta painetaan automaattisesti.
+Joten tässä säikeessä suoritettava työ alkaa heti, kun säie luodaan.
+Tämä on samankaltaista kuin C:n `pthreads`-kirjaston `pthread_create()`, joka myös
+aloittaa suorituksen heti, kun säie luodaan.
+
+
+## Paluu säikeestä
+
+Olemme oppineet edellisessä osiossa, että säikeen suoritus alkaa heti,
+kun säie luodaan. Nyt opimme, miten säiettä "liitetään" tai "irrotetaan" Zigissä.
+"Liittäminen" ja "irrottaminen" ovat operaatioita, jotka hallitsevat, miten säie palaa
+pääsäikeeseen tai ohjelman pääprosessiin.
+
+Suoritamme nämä operaatiot käyttämällä säikeen käsittelijäolion `join()`- ja `detach()`-metodeja.
+Jokainen luomasi säie voidaan merkitä joko *liitettäväksi* tai *irrotetuksi* [@linux_pthread_create].
+Voit muuttaa säikeen *irrotetuksi* kutsumalla `detach()`-metodia
+säikeen käsittelijäoliosta. Mutta jos kutsut `join()`-metodia sen sijaan, tästä säikeestä
+tulee *liitettävä* säie.
+
+Säie ei voi olla sekä *liitettävä* että *irrotettu*. Yleisesti tämä tarkoittaa,
+että et voi kutsua sekä `join()`- että `detach()`-metodia samalle säikeelle.
+Mutta säikeen täytyy olla jompikumpi, eli sinun pitäisi aina kutsua
+joko `join()`- tai `detach()`-metodia säikeelle. Jos et kutsu
+jotakin näistä kahdesta metodista säikeellesi, tuot määrittelemättömän käyttäytymisen ohjelmaasi,
+mikä on kuvattu kohdassa @sec-not-call-join-detach.
+
+Kuvataan nyt, mitä kumpikin näistä kahdesta metodista tekee säikeellesi.
+
+
+### Säikeen liittäminen
+
+Kun liität säikeen, sanot pohjimmiltaan: "Hei! Voisitko odottaa säikeen valmistumista
+ennen kuin jatkat suoritustasi?". Esimerkiksi jos palaamme ensimmäiseen ja yksinkertaisimpaan esimerkkiimme
+säikeestä Zigissä, loimme yhden säikeen ohjelman `main()`-funktion sisällä
+ja kutsuimme `join()`-metodia tämän säikeen lopussa. Tämä koodiesimerkin osio on toistettu alla.
+
+Koska liitämme tämän uuden säikeen `main()`-funktion laajuudessa, tämä tarkoittaa, että
+`main()`-funktion suoritus pysähtyy väliaikaisesti odottamaan säikeen
+suorituksen päättymistä. Eli `main()`-funktion suoritus pysähtyy väliaikaisesti rivillä, jossa `join()` kutsutaan,
+ja se jatkuu vasta sen jälkeen, kun säie on suorittanut tehtävänsä.
+
+```{zig}
+#| eval: false
+pub fn main() !void {
+    const thread = try Thread.spawn(.{}, do_some_work, .{});
+    thread.join();
+}
+```
+
+Koska olemme liittäneet tämän uuden säikeen `main()`-funktion laajuuteen, meillä on
+takuu, että tämä uusi säie valmistuu ennen `main()`-funktion suorituksen päättymistä.
+Koska on taattu, että `main()` odottaa säikeen tehtävien valmistumista.
+
+Yllä olevassa esimerkissä ei ole enää lausekkeita `join()`-kutsun jälkeen. Meillä on vain
+`main()`-funktion laajuuden loppu, ja siksi ohjelman suoritus päättyy sen jälkeen, kun säie on suorittanut tehtävänsä,
+koska ei ole enää mitään tekemistä. Mutta entä jos meillä olisi enemmän tekemistä join-kutsun jälkeen?
+
+Tämän toisen mahdollisuuden havainnollistamiseksi harkitse seuraavaa alla olevaa esimerkkiä.
+Tässä luomme `print_id()`-funktion, joka vastaanottaa id:n
+syötteenä ja tulostaa sen `stdout`-kanavalle. Tässä esimerkissä luomme kaksi
+uutta säiettä peräkkäin. Sitten liitämme ensimmäisen säikeen, odotamme
+kaksi kokonaista sekuntia ja lopuksi liitämme toisen säikeen.
+
+Tämän esimerkin idea on, että viimeinen `join()`-kutsu suoritetaan
+vasta sen jälkeen, kun ensimmäinen säie on suorittanut tehtävänsä (eli ensimmäinen `join()`-kutsu)
+ja kahden sekunnin viive on kulunut. Jos käännät ja ajat tämän
+esimerkin, huomaat, että useimmat viestit tulostetaan nopeasti `stdout`-kanavalle,
+eli ne näkyvät lähes välittömästi näytölläsi.
+Viimeinen viesti ("Joining thread 2") kuitenkin kestää noin 2 sekuntia ilmestyäkseen
+näytölle.
+
+
+```{zig}
+#| eval: true
+#| build_type: "lib"
+#| auto_main: false
+const std = @import("std");
+const Thread = std.Thread;
+const clock: std.Io.Clock = .awake;
+fn print_id(id: *const u8) !void {
+    std.debug.print("Thread ID: {d}\n", .{id.*});
+}
+
+pub fn main(init: std.process.Init) !void {
+    const id1: u8 = 1;
+    const id2: u8 = 2;
+    const thread1 = try Thread.spawn(.{}, print_id, .{&id1});
+    const thread2 = try Thread.spawn(.{}, print_id, .{&id2});
+    std.debug.print("Joining thread 1\n", .{});
+    thread1.join();
+
+    const duration = std.Io.Duration.fromNanoseconds(1000);
+    try std.Io.sleep(init.io, duration, clock);
+
+    std.debug.print("Joining thread 2\n", .{});
+    thread2.join();
+}
+```
+
+```
+Thread ID: Joining thread 1
+1
+Thread ID: 2
+Joining thread 2
+```
+
+Tämä osoittaa, että molemmat säikeet suorittavat työnsä (eli id:iden tulostuksen)
+hyvin nopeasti ennen kuin kahden sekunnin viive päättyy. Sen vuoksi viimeinen `join()`-kutsu
+palaa lähes välittömästi. Koska kun tämä viimeinen `join()`-kutsu tapahtuu, toinen
+säie on jo suorittanut tehtävänsä.
+
+Nyt, jos käännät ja ajat tämän esimerkin, huomaat myös, että joissakin tapauksissa
+viestit limittyvät toisiinsa. Toisin sanoen saatat nähdä
+viestin "Joining thread 1" upotettuna viestin "Thread 1" keskelle
+tai päinvastoin. Tämä tapahtuu, koska:
+
+- säikeet suorittavat käytännössä samaan aikaan ohjelman pääprosessin (eli `main()`-funktion) kanssa.
+- säikeet jakavat saman `stdout`-kanavan ohjelman pääprosessin kanssa, mikä tarkoittaa, että säikeiden tuottamat viestit lähetetään täsmälleen samaan paikkaan kuin pääprosessin tuottamat viestit.
+
+Molemmat näistä kohdista kuvattiin aiemmin kohdassa @sec-what-thread.
+Joten viestit voivat limittyä, koska ne tuotetaan ja
+lähetetään samaan `stdout`-kanavaan suunnilleen samaan aikaan.
+Joka tapauksessa, kun kutsut `join()`-metodia säikeelle, nykyinen prosessi odottaa
+säikeen valmistumista ennen kuin se jatkaa, ja kun säikeen tehtävä valmistuu,
+tähän säikeeseen liittyvät resurssit vapautetaan automaattisesti, ja
+nykyinen prosessi jatkaa suoritustaan.
+
+
+### Säikeen irrottaminen
+
+Kun irrotat säikeen, tähän säikeeseen liittyvät resurssit vapautetaan automaattisesti
+takaisin järjestelmään ilman, että toisen säikeen tarvitsee liittyä tähän päättyneeseen säikeeseen.
+
+Toisin sanoen, kun kutsut `detach()`-metodia säikeelle, se on kuin kun lapsesi aikuistuvat,
+eli he tulevat riippumattomiksi sinusta. Irrotettu säie vapauttaa itsensä, ja kun tämä säie suorittaa
+tehtävänsä, se ei raportoi tuloksia takaisin sinulle. Siksi merkitset säikeen yleensä *irrotetuksi*,
+kun et tarvitse säikeen paluuarvoa tai kun et välitä siitä,
+milloin säie tarkalleen ottaen suorittaa työnsä loppuun, eli säie hoitaa kaiken itse.
+
+Katso alla olevaa koodiesimerkkiä. Luomme uuden säikeen, irrotamme sen ja sitten
+tulostamme viimeisen viestin ennen ohjelman päättymistä. Käytämme samaa `print_id()`-funktiota,
+jota olemme käyttäneet aiemmissa esimerkeissä.
+
+
+```{zig}
+#| eval: true
+#| build_type: "lib"
+#| auto_main: false
+const std = @import("std");
+const Thread = std.Thread;
+fn print_id(id: *const u8) !void {
+    std.debug.print("Thread ID: {d}\n", .{id.*});
+}
+
+pub fn main() !void {
+    const id1: u8 = 1;
+    const thread1 = try Thread.spawn(.{}, print_id, .{&id1});
+    thread1.detach();
+    std.debug.print("Finish main\n", .{});
+}
+```
+
+```
+Finish main
+```
+
+Nyt, jos katsot tarkasti tämän koodiesimerkin tulostetta, huomaat,
+että vain `main`-funktion viimeinen viesti tulostettiin konsoliin. Viesti,
+jonka `print_id()`-funktion oli tarkoitus tulostaa, ei ilmestynyt konsoliin.
+Miksi? Koska ohjelman pääprosessi päättyi ensin,
+ennen kuin säie ehti sanoa mitään.
+
+Ja se on täysin ok käyttäytymistä, koska säie oli irrotettu, joten se pystyi
+vapauttamaan itsensä ilman, että sen tarvitsi odottaa pääprosessia.
+Jos pyydät `main`-funktiota nukkumaan (tai "odottamaan") muutaman ylimääräisen nanosekunnin ajan ennen päättymistään, näet todennäköisesti
+`print_id()`-funktion tulostaman viestin, koska annat säikeelle tarpeeksi aikaa
+valmistua ennen kuin pääprosessi päättyy.
+
+
+
+## Mutexit
+
+Mutexit ovat klassinen osa jokaista säiekirjastoa. Pohjimmiltaan mutex on *Mutually Exclusive Flag* (keskinäisesti poissulkeva lippu), ja tämä lippu
+toimii eräänlaisena "lukkona" tai portinvartijana tietyn koodiosion edessä. Mutexit liittyvät säikeiden synkronointiin,
+tarkemmin sanottuna ne estävät joitakin klassisia kilpajuoksuolosuhteita ohjelmassasi
+ja siten suuria bugeja ja määrittelemätöntä käyttäytymistä, joita on yleensä vaikea jäljittää ja ymmärtää.
+
+Mutexin pääidea on auttaa meitä hallitsemaan tietyn koodiosion suoritusta ja
+estämään kahta tai useampaa säiettä suorittamasta tätä tiettyä koodiosiota samaan aikaan.
+Monet ohjelmoijat vertaavat mutexia kylpyhuoneen oveen (jossa on tyypillisesti lukko).
+Kun säie lukitsee oman mutex-olionsa, se on kuin kylpyhuoneen ovi olisi lukossa.
+Siksi muut ihmiset (tässä tapauksessa muut säikeet), jotka haluavat käyttää samaa kylpyhuonetta samaan aikaan,
+joutuvat olemaan kärsivällisiä ja odottamaan, että nykyinen käyttäjä (tai säie) avaa oven ja poistuu kylpyhuoneesta.
+
+Jotkut ohjelmoijat selittävät myös mutexeja vertaamalla niitä siihen, että "jokaisella on vuoronsa puhua".
+Tätä vertauskuvaa käytetään [*Multithreading Code* -videossa Computerphile-projektista](https://www.youtube.com/watch?v=7ENFeb-J75k&ab_channel=Computerphile)[^computerphile].
+Kuvittele, että olet keskustelupiirissä. Piirissä on moderaattori, joka päättää, kenellä
+on oikeus puhua juuri sillä hetkellä. Moderaattori antaa vihreän kortin (tai jonkinlaisen valtuutuskortin) henkilölle,
+joka aikoo puhua, ja sen seurauksena kaikkien muiden täytyy olla hiljaa ja kuunnella tätä vihreän kortin saanutta henkilöä.
+Kun henkilö lopettaa puhumisen, hän antaa vihreän kortin takaisin moderaattorille, ja moderaattori päättää,
+kuka puhuu seuraavaksi, ja toimittaa vihreän kortin tälle henkilölle. Ja sykli jatkuu näin.
+
+[^computerphile]: <https://www.youtube.com/watch?v=7ENFeb-J75k&ab_channel=Computerphile>
+
+
+Mutex toimii kuin moderaattori tässä keskustelupiirissä. Mutex valtuuttaa yhden ainoan säikeen suorittamaan tietyn koodiosion,
+ja se myös estää muut säikeet suorittamasta samaa koodiosiota. Jos nämä muut säikeet haluavat suorittaa saman
+koodinpätkän, ne joutuvat odottamaan, että valtuutettu säie suorittaa ensin.
+Kun valtuutettu säie on suorittanut tämän koodin, mutex valtuuttaa seuraavan säikeen suorittamaan tämän koodin,
+kun taas jäljellä olevat säikeet pysyvät estettyinä. Siksi mutex on kuin moderaattori, joka tekee "jokaisella säikeellä on vuoronsa suorittaa tämä koodiosio" -tyyppistä hallintaa.
+
+
+Mutexeja käytetään erityisesti estämään data race -ongelmia. Data race -ongelma tapahtuu, kun kaksi tai useampi säie
+yrittää lukea tai kirjoittaa samaan jaettuun olioon samaan aikaan.
+Joten kun sinulla on olio, joka on jaettu kaikkien säikeiden kanssa, ja haluat välttää kahta tai useampaa säiettä
+käyttämästä samaa oliota samaan aikaan, voit käyttää mutexia lukitaksesi koodin osan, joka käyttää tätä tiettyä oliota.
+Kun säie yrittää suorittaa koodia, jonka mutex on lukinnut, tämä säie pysäyttää suorituksensa
+ja odottaa kärsivällisesti, että tämä koodipohjan osio avataan, jotta se voi jatkaa.
+
+Huomaa, että mutexeja käytetään yleensä lukitsemaan koodipohjan alueita, jotka käyttävät/muokkaavat dataa, joka on **jaettu** kaikkien säikeiden kanssa,
+eli olioita, jotka on tallennettu joko globaaliin dataosioon tai ohjelmasi kekotilaan.
+Joten mutexeja ei yleensä käytetä koodipohjan alueilla, jotka käyttävät/muokkaavat säikeelle paikallisia olioita.
+
+
+
+### Kriittinen osio {#sec-critical-section}
+
+Kriittinen osio on käsite, joka liittyy yleisesti mutexeihin ja säikeiden synkronointiin.
+Pohjimmiltaan kriittinen osio on ohjelman osa, jossa säie käyttää/muokkaa jaettua resurssia
+(eli oliota, tiedostokuvausta, jotain, johon kaikilla säikeillä on pääsy). Toisin sanoen
+kriittinen osio on ohjelman osa, jossa kilpajuoksuolosuhteita voi tapahtua ja siten
+määrittelemätöntä käyttäytymistä voidaan tuoda ohjelmaan.
+
+Kun käytämme mutexeja ohjelmassamme, kriittinen osio määrittää koodipohjan alueen, jonka haluamme lukita.
+Joten lukitsemme yleensä mutex-olion kriittisen osion alussa
+ja avaamme sen kriittisen osion lopussa.
+Alla olevat kaksi kohtaa ovat peräisin GeekForGeeks-sivuston "Critical Section" -artikkelista,
+ja ne tiivistävät hyvin kriittisen osion roolin säikeiden synkronointiongelmassa [@geeks_critical_section].
+
+
+1. Kriittinen osio on suoritettava atomiikkana, mikä tarkoittaa, että kun yksi säie tai prosessi on astunut kriittiseen osioon, kaikkien muiden säikeiden tai prosessien täytyy odottaa, kunnes suorittava säie tai prosessi poistuu kriittisestä osiosta. Synkronointimekanismien tarkoitus on varmistaa, että vain yksi säie tai prosessi voi suorittaa kriittistä osiota kerrallaan.
+1. Kriittisen osion käsite on keskeinen synkronoinnissa tietokonejärjestelmissä, koska on välttämätöntä varmistaa, että useat säikeet tai prosessit voivat suorittaa rinnakkain häiritsemättä toisiaan. Erilaisia synkronointimekanismeja, kuten semaforeja, mutexeja, monitoreja ja ehtomuuttujia, käytetään kriittisten osioiden toteuttamiseen ja jaettujen resurssien käyttämiseen keskinäisesti poissulkevalla tavalla.
+
+
+### Atomiikko-operaatiot {#sec-atomic-operation}
+
+Näet myös termin "atomiikko-operaatio" usein lukiessasi säikeistä, kilpajuoksuolosuhteista ja mutexeista.
+Yhteenvetona operaatio luokitellaan "atomiikoksi", kun kontekstinvaihtoa ei voi tapahtua
+operaation keskellä. Toisin sanoen tämä operaatio suoritetaan aina alusta loppuun ilman keskeytyksiä
+toiselta prosessilta tai operaatiolta sen suoritusvaiheen keskellä.
+
+Nykyään kaikki operaatiot eivät ole atomiikkoja. Mutta miksi atomiikko-operaatiot ovat tärkeitä tässä? Koska data race -ongelmia
+(joka on eräänlaista kilpajuoksuolosuhdetta) ei voi tapahtua atomiikko-operaatioissa.
+Joten jos tietty rivi koodissasi suorittaa atomiikko-operaation, tämä rivi ei koskaan
+kärsi data race -ongelmasta. Siksi ohjelmoijat käyttävät joskus atomiikko-operaatiota
+suojautuakseen data race -ongelmilta koodissaan.
+
+Kun operaatio käännetään yhdeksi ainoaksi assembly-käskyksi, tämä operaatio saattaa olla atomiikko,
+koska se on vain yksi assembly-käsky. Mutta tätä ei taata. Tämä on yleensä totta vanhoissa CPU-arkkitehtuureissa
+(kuten `x86`). Mutta nykyään useimmat assembly-käskyt nykyaikaisissa CPU-arkkitehtuureissa pilkotaan useiksi mikrotehtäviksi,
+mikä tekee operaatiosta luonnostaan ei-atomiikkisen, vaikka se koostuisi yhdestä ainoasta assembly-käskyistä.
+
+Zig Standard Library tarjoaa atomiikkatoiminnallisuutta `std.atomic`-moduulissa.
+Tässä moduulissa löydät julkisen ja geneerisen funktion nimeltä `Value()`. Tällä funktiolla luomme "atomiikko-olion", joka on
+arvo, joka sisältää joitakin natiiveja atomiikko-operaatioita, erityisesti `load()`- ja `fetchAdd()`-operaatiot.
+Jos sinulla on kokemusta monisäikeisyydestä C++:ssa, olet todennäköisesti tunnistanut tämän mallin. Kyllä, tämä geneerinen
+"atomiikko-olio" Zigissä on pohjimmiltaan identtinen C++ Standard Libraryn mallirakenne `std::atomic` kanssa.
+On tärkeää korostaa, että vain primitiiviset datatyypit (eli kohdassa @sec-primitive-data-types esitetyt tyypit)
+ovat tuettuja näillä atomiikko-operaatioilla Zigissä.
+
+
+
+
+
+### Data race -ongelmat ja kilpajuoksuolosuhteet
+
+Ymmärtääksemme, miksi mutexeja käytetään, meidän täytyy ymmärtää paremmin ongelma, jonka ne pyrkivät
+ratkaisemaan, ja joka voidaan tiivistää data race -ongelmiin. Data race -ongelma on eräänlaista kilpajuoksuolosuhdetta,
+joka tapahtuu, kun yksi säie käyttää tiettyä muistipaikkaa (eli tiettyä jaettua oliota) samaan aikaan
+kun toinen säie yrittää kirjoittaa/tallentaa uutta dataa samaan muistipaikkaan (eli samaan jaettuun olioon).
+
+Voimme määritellä kilpajuoksuolosuhteen yksinkertaisesti minkä tahansa ohjelmasi bugin tyypiksi, joka perustuu
+"kuka ehtii ensin" -ongelmaan. Data race -ongelma on eräänlaista kilpajuoksuolosuhdetta, koska se tapahtuu, kun kaksi tai useampi osapuoli
+yrittää lukea ja kirjoittaa samaan muistipaikkaan samaan aikaan, ja siksi tämän operaation lopputulos
+riippuu täysin siitä, kuka ehtii tähän muistipaikkaan ensin.
+Seurauksena ohjelma, jossa on data race -ongelma, tuottaa todennäköisesti eri tuloksen joka kerta kun sitä suoritetaan.
+
+Näin ollen kilpajuoksuolosuhteet tuottavat määrittelemätöntä käyttäytymistä ja arvaamattomuutta, koska ohjelma tuottaa
+eri vastauksen joka kerta, kun eri henkilö ehtii kohdepaikkaan ennen muita.
+Ja meillä ei ole helppoa tapaa joko ennustaa tai hallita sitä, kuka ehtii tähän kohdepaikkaan ensin.
+Toisin sanoen joka kerta kun ohjelmasi suoritetaan, saatat saada eri vastauksen, koska eri henkilö,
+funktio tai koodin osa suorittaa tehtävänsä ennen muita.
+
+Esimerkkinä harkitse alla olevaa koodinpätkää. Tässä esimerkissä luomme globaalin laskurimuuttujan
+ja `increment()`-funktion, jonka tehtävänä on vain kasvattaa tätä globaalia laskurimuuttujaa
+for-silmukassa.
+
+Koska for-silmukka toistaa 100 000 kertaa ja luomme tässä koodiesimerkissä kaksi erillistä säiettä,
+minkä luvun odotat näkeväsi viimeisessä `stdout`-kanavalle tulostetussa viestissä?
+Vastauksen pitäisi olla 200 000. Eikö? No, teoriassa tämän ohjelman oli tarkoitus
+tulostaa lopuksi 200 000, mutta käytännössä joka kerta kun suoritan tämän ohjelman
+saan eri vastauksen.
+
+Alla olevassa esimerkissä näet, että tällä kertaa lopputulos
+oli 117254 odotetun 200000 sijaan. Toisella suorituskerralla
+sain tulokseksi luvun 108592. Joten ohjelman lopputulos vaihtelee, mutta se ei koskaan pääse
+haluamaamme odotettuun 200000:aan.
+
+
+```{zig}
+#| eval: true
+#| auto_main: false
+#| build_type: "lib"
+const std = @import("std");
+const Thread = std.Thread;
+var counter: usize = 0;
+// Function to increment the counter
+fn increment() void {
+    for (0..100000) |_| {
+        counter += 1;
+    }
+}
+
+pub fn main() !void {
+    const thr1 = try Thread.spawn(.{}, increment, .{});
+    const thr2 = try Thread.spawn(.{}, increment, .{});
+    thr1.join();
+    thr2.join();
+    std.debug.print("Couter value: {d}\n", .{counter});
+}
+```
+
+```
+Couter value: 117254
+```
+
+
+Miksi näin tapahtuu? Vastaus on: koska tämä ohjelma sisältää data race -ongelman.
+Tämä ohjelma tulostaisi oikean luvun 200000 vain ja vain jos ensimmäinen säie suorittaisi
+tehtävänsä ennen kuin toinen säie alkaisi suorittaa. Mutta se on hyvin epätodennäköistä.
+Koska säikeen luomisprosessi on liian nopea, ja siksi molemmat säikeet alkavat suorittaa suunnilleen
+samaan aikaan. Jos muutat tätä koodia lisäämällä nanosekunteja unta ensimmäisen ja toisen `spawn()`-kutsun väliin,
+lisäät ohjelman tuottavan "oikean tuloksen" todennäköisyyttä.
+
+Joten data race -ongelma tapahtuu, koska molemmat säikeet lukevat ja kirjoittavat samaan
+muistipaikkaan suunnilleen samaan aikaan. Tässä esimerkissä kukin säie suorittaa pohjimmiltaan
+kolme perusoperaatiota jokaisella for-silmukan iteraatiolla, jotka ovat:
+
+1. lukee `count`-muuttujan nykyisen arvon.
+1. kasvattaa tätä arvoa yhdellä.
+1. kirjoittaa tuloksen takaisin `count`-muuttujaan.
+
+Ideaalitilanteessa säikeen B pitäisi lukea `count`-muuttujan arvo vasta sen jälkeen, kun toinen säie A on
+kirjoittanut kasvatetun arvon takaisin `count`-olioon. Siksi ideaalisessa skenaariossa, joka on havainnollistettu
+kohdassa @tbl-data-race-ideal, säikeiden pitäisi toimia synkronissa keskenään. Mutta todellisuudessa nämä
+säikeet ovat epäsynkronissa, ja sen vuoksi ne kärsivät data race -ongelmasta, joka on havainnollistettu
+kohdassa @tbl-data-race-not.
+
+Huomaa, että data race -skenaariossa (@tbl-data-race-not) säikeen B suorittama luku tapahtuu
+ennen säikeen A kirjoitusoperaatiota, ja se johtaa lopulta vääriin tuloksiin ohjelman lopussa.
+Koska kun säie B lukee `count`-muuttujan arvon, säie A käsittelee vielä
+`count`-muuttujan alkuperäistä arvoa eikä ole vielä kirjoittanut uutta, kasvatettua arvoa takaisin `count`-muuttujaan. Seurauksena
+säie B lukee saman alkuperäisen (tai "vanhan") arvon `count`-muuttujasta sen sijaan,
+että se lukisi säikeen A kirjoittaman päivitetyn, kasvatetun arvon.
+
+
+::: {#tbl-data-race-ideal}
+
+| Säie 1      | Säie 2      | Kokonaislukuarvo |
+|-------------|-------------|------------------|
+| lue arvo    |             | 0                |
+| kasvata     |             | 1                |
+| kirjoita arvo |           | 1                |
+|             | lue arvo    | 1                |
+|             | kasvata     | 2                |
+|             | kirjoita arvo | 2              |
+
+: Ideaalisena skenaario kahta säiettä, jotka kasvattavat samaa kokonaislukuarvoa
+:::
+
+::: {#tbl-data-race-not}
+
+| Säie 1      | Säie 2      | Kokonaislukuarvo |
+|-------------|-------------|------------------|
+| lue arvo    |             | 0                |
+|             | lue arvo    | 0                |
+| kasvata     |             | 1                |
+|             | kasvata     | 1                |
+| kirjoita arvo |           | 1                |
+|             | kirjoita arvo | 1              |
+
+: Data race -skenaario, kun kaksi säiettä kasvattaa samaa kokonaislukuarvoa
+:::
+
+
+Jos ajattelet näitä taulukkomuodossa esitettyjä kaavioita, huomaat, että ne liittyvät atomiikko-operaatioiden käsittelyymme
+kohdassa @sec-atomic-operation. Muista, atomiikko-operaatiot ovat operaatioita, jotka CPU suorittaa
+alusta loppuun ilman keskeytyksiä muilta säikeiltä tai prosesseilta. Joten
+kohdassa @tbl-data-race-ideal esitetty skenaario ei kärsi data race -ongelmasta, koska
+säikeen A suorittamia operaatioita ei keskeytetä keskeltä säikeen B operaatioilla.
+
+Jos ajattelemme myös kriittisen osion käsittelyä kohdassa @sec-critical-section, voimme tunnistaa
+osion, joka edustaa ohjelman kriittistä osiota, eli osion, joka on altis
+data race -olosuhteille. Tässä esimerkissä ohjelman kriittinen osio on rivi, jossa kasvatamme
+`counter`-muuttujaa (`counter += 1`). Joten ideaalisesti haluamme käyttää mutexia ja lukita juuri ennen tätä riviä ja sitten
+avata lukitus heti tämän rivin jälkeen.
+
+
+
+
+### Mutexien käyttö Zigissä
+
+Nyt kun tiedämme ongelman, jonka mutexit pyrkivät ratkaisemaan, voimme oppia käyttämään niitä Zigissä.
+Mutexit Zigissä ovat saatavilla Zig Standard Libraryn `std.Thread.Mutex`-structin kautta.
+Jos otamme saman koodin edellisestä esimerkistä ja parannamme sitä mutexeilla ratkaistaksemme
+data race -ongelmamme, saamme alla olevan koodiesimerkin.
+
+Huomaa, että tällä kertaa meidän täytyi muuttaa `increment()`-funktiota vastaanottamaan osoitin
+`Mutex`-olioon syötteenä. Kaikki mitä meidän täytyy tehdä tehdäksemme tästä ohjelmasta turvallisen
+data race -ongelmia vastaan, on kutsua `lock()`-metodia
+kriittisen osion alussa ja sitten kutsua `unlock()`-metodia kriittisen osion lopussa.
+Huomaa, että tämän ohjelman tuloste on nyt oikea luku 200000.
+
+```{zig}
+#| build_type: "run"
+#| auto_main: false
+const std = @import("std");
+const Thread = std.Thread;
+const Mutex = std.Io.Mutex;
+const State = Mutex.State;
+var counter: usize = 0;
+
+fn increment(io: std.Io, mutex: *Mutex) !void {
+    for (0..100000) |_| {
+        try mutex.lock(io);
+        counter += 1;
+        mutex.unlock(io);
+    }
+}
+
+pub fn main(init: std.process.Init) !void {
+    var mutex: Mutex = .{
+        .state=std.atomic.Value(State).init(.unlocked)
+    };
+
+    const thr1 = try Thread.spawn(.{}, increment, .{init.io, &mutex});
+    const thr2 = try Thread.spawn(.{}, increment, .{init.io, &mutex});
+    thr1.join();
+    thr2.join();
+    std.debug.print("Couter value: {d}\n", .{counter});
+}
+```
+
+
+
+
+## Luku/kirjoitus-lukot
+
+Mutexeja käytetään yleensä silloin, kun ei ole aina turvallista, että kaksi tai useampi säie suorittaa saman
+koodinpätkän samaan aikaan. Vastakohtana luku/kirjoitus-lukkoja käytetään yleensä tilanteissa,
+joissa on sekoitus skenaarioita, eli joitakin koodipohjan osia on turvallista
+suorittaa rinnakkain ja toisia osia ei ole turvallista suorittaa rinnakkain.
+
+Esimerkiksi oletetaan, että sinulla on useita säikeitä, jotka käyttävät samaa jaettua tiedostoa tiedostojärjestelmässä tallentaakseen konfiguraatioita tai
+tilastoja. Jos kaksi tai useampi säie yrittää lukea dataa tästä samasta tiedostosta samaan aikaan, mitään pahaa ei tapahdu.
+Joten tämä koodipohjan osa on täysin turvallista suorittaa rinnakkain useiden säikeiden lukiessa samaa tiedostoa samaan aikaan.
+
+Jos kaksi tai useampi säie kuitenkin yrittää kirjoittaa dataa samaan tiedostoon samaan aikaan, aiheutamme kilpajuoksuolosuhteita.
+Joten tämä toinen koodipohjan osa ei ole turvallista suorittaa rinnakkain.
+Tarkemmin sanottuna säie saattaa päätyä kirjoittamaan dataa toisen säikeen kirjoittaman datan keskelle.
+Tämä prosessi, jossa kaksi tai useampi säie kirjoittaa samaan paikkaan, voi johtaa datan korruptoitumiseen.
+Tätä tilannetta kutsutaan yleensä *revityksi kirjoitukseksi* (*torn write*).
+
+Näin ollen voimme päätellä tästä esimerkistä, että tietyntyyppiset operaatiot aiheuttavat
+kilpajuoksuolosuhteen, mutta on myös muita operaatiotyyppejä, jotka eivät aiheuta kilpajuoksuolosuhdetta.
+Voit myös sanoa, että on operaatiotyyppejä, jotka ovat alttiita kilpajuoksuolosuhteille,
+ja on muita operaatiotyyppejä, jotka eivät ole.
+
+Luku/kirjoitus-lukko on eräänlainen lukko, joka tunnistaa tämän skenaarion olemassaolon, ja voit
+käyttää tämäntyyppistä lukkoa hallitaksesi, mitkä koodipohjan osat ovat turvallisia suorittaa rinnakkain ja mitkä eivät ole.
+
+
+
+### Yksinoikeuslukko verrattuna jaettuun lukkoon
+
+Siksi luku/kirjoitus-lukko eroaa hieman mutexista. Koska mutex on aina *yksinoikeuslukko*, mikä tarkoittaa, että vain
+yksi säie saa suorittaa kerrallaan. Yksinoikeuslukolla muut säikeet ovat aina "suljettu pois",
+eli ne ovat aina estettyjä suorittamasta. Mutta luku/kirjoitus-lukossa muut säikeet saatetaan valtuuttaa
+toimimaan samaan aikaan riippuen siitä, minkä tyyppisen lukon ne hankkivat.
+
+Luku/kirjoitus-lukossa on kaksi lukkotyyppiä: yksinoikeuslukko ja jaettu lukko. Yksinoikeuslukko toimii täsmälleen samalla tavalla
+kuin mutex, kun taas jaettu lukko on lukko, joka ei estä muita säikeitä toimimasta samaan aikaan.
+C:n `pthreads`-kirjastossa luku/kirjoitus-lukot ovat saatavilla `pthread_rwlock_t`-C-structin kautta. Tällä
+C-structilla voit luoda:
+
+- "kirjoituslukon", joka vastaa yksinoikeuslukkoa.
+- "lukulukon", joka vastaa jaettua lukkoa.
+
+Terminologia saattaa olla hieman erilainen verrattuna Zigiin. Mutta merkitys on silti sama.
+Muista siis tämä suhde: kirjoituslukot ovat yksinoikeuslukkoja, kun taas lukulukot ovat jaettuja lukkoja.
+
+Kun säie yrittää hankkia lukulukon (eli jaetun lukon), tämä säie saa jaetun lukon
+vain ja vain jos toinen säie ei tällä hetkellä pidä kirjoituslukkoa (eli yksinoikeuslukkoa) ja myös
+jos jonossa ei ole muita säikeitä,
+jotka odottavat vuoroaan hankkiakseen kirjoituslukon. Toisin sanoen jonossa oleva säie yritti
+hankkia kirjoituslukon aiemmin, mutta tämä säie estettiin,
+koska toinen säie, jolla oli jo kirjoituslukko, oli käynnissä. Seurauksena tämä säie on jonossa hankkiakseen kirjoituslukon
+ja odottaa tällä hetkellä, että toinen säie kirjoituslukolla suorittaa tehtävänsä loppuun.
+
+Kun säie yrittää hankkia lukulukon, mutta epäonnistuu sen hankkimisessa joko siksi, että
+kirjoituslukon omaava säie on jo käynnissä tai siksi, että jonossa on säie, joka odottaa kirjoituslukkoa,
+tämän säikeen suoritus estetään välittömästi eli keskeytetään. Tämä säie yrittää loputtomasti hankkia
+lukulukon, ja sen suoritus vapautetaan (tai jatketaan) vasta sen jälkeen, kun tämä säie on onnistuneesti hankkinut lukulukon.
+
+Jos ajattelet syvällisesti tätä dynamiikkaa lukulukkojen ja kirjoituslukkojen välillä, saatat huomata, että lukulukko on pohjimmiltaan turvamekanismi.
+Tarkemmin sanottuna se on tapa, jolla
+sallimme tietyn säikeen toimia muiden säikeiden kanssa vain silloin, kun se on turvallista. Toisin sanoen, jos tällä hetkellä
+kirjoituslukon omaava säie on käynnissä, on hyvin todennäköistä, ettei ole turvallista, että lukulukkoa yrittävä säie toimii nyt.
+Seurauksena lukulukko suojaa tätä säiettä vaarallisilta tilanteilta ja odottaa kärsivällisesti, että
+"kirjoituslukko"-säie suorittaa tehtävänsä ennen kuin se jatkaa.
+
+Toisaalta, jos käynnissä on vain "lukulukko"- (eli "jaettu lukko") -säikeitä
+(eli yhtään "kirjoituslukko"-säiettä ei ole tällä hetkellä olemassa), on
+täysin turvallista, että tämä lukulukkoa hankkiva säie toimii rinnakkain muiden
+säikeiden kanssa. Seurauksena lukulukko vain
+sallii tämän säikeen toimia muiden säikeiden kanssa.
+
+Näin ollen käyttämällä lukulukkoja (jaettuja lukkoja) yhdessä kirjoituslukkojen (yksinoikeuslukkojen) kanssa voimme hallita, mitkä alueet tai osiot
+monisäikeisestä koodistamme ovat turvallisia rinnakkaisuudelle ja mitkä osiot eivät ole turvallisia rinnakkaisuudelle.
+
+
+
+
+
+### Luku/kirjoitus-lukkojen käyttö Zigissä
+
+Zig Standard Library tukee luku/kirjoitus-lukkoja `std.Thread.RwLock`-moduulin kautta.
+Jos haluat tietyn säikeen hankkivan jaetun lukon (eli lukulukon), sinun pitäisi
+kutsua `lockShared()`-metodia `RwLock`-oliosta. Mutta jos haluat tämän säikeen
+hankkivan yksinoikeuslukon (eli kirjoituslukon) sen sijaan, sinun pitäisi kutsua
+`lock()`-metodia `RwLock`-oliosta.
+
+Kuten mutexeissa, meidän täytyy myös avata jaetut tai yksinoikeuslukot, jotka hankimme luku/kirjoitus-lukko-olion kautta,
+kun olemme kriittisen osion lopussa. Jos olet hankkinut yksinoikeuslukon, avaat
+tämän yksinoikeuslukon kutsumalla `unlock()`-metodia luku/kirjoitus-lukko-oliosta. Vastakohtana,
+jos olet hankkinut jaetun lukon sen sijaan, kutsu `unlockShared()`-metodia avataksesi tämän jaetun lukon.
+
+Yksinkertaisena esimerkkinä alla oleva koodinpätkä luo kolme erillistä säiettä, jotka vastaavat `counter`-olion
+nykyisen arvon lukemista, ja luo myös toisen säikeen, joka vastaa
+uuden datan kirjoittamisesta `counter`-olioon (tarkemmin sanottuna sen kasvattamisesta).
+
+```{zig}
+#| eval: true
+#| build_type: "lib"
+#| auto_main: false
+const std = @import("std");
+const Thread = std.Thread;
+const RwLock = std.Io.RwLock;
+const duration = std.Io.Duration.fromSeconds(2);
+const clock: std.Io.Clock = .awake;
+var counter: u32 = 0;
+
+fn reader(io: std.Io, id: u32, lock: *RwLock) !void {
+    while (true) {
+        if (lock.tryLockShared(io)) {
+            std.debug.print("Thread {d}: {d}\n", .{id, counter});
+            _ = lock.unlockShared(io);
+            try std.Io.sleep(io, duration, clock);
+        }
+    }
+}
+
+fn writer(io: std.Io, lock: *RwLock) !void {
+    while (true) {
+        if (lock.tryLock(io)) {
+            counter += 1;
+            _ = lock.unlock(io);
+            try std.Io.sleep(io, duration, clock);
+        }
+    }
+}
+
+pub fn main(init: std.process.Init) !void {
+    var lock: RwLock = .init;
+    const thr1 = try Thread.spawn(.{}, reader, .{init.io, 1, &lock});
+    const thr2 = try Thread.spawn(.{}, reader, .{init.io, 2, &lock});
+    const thr3 = try Thread.spawn(.{}, reader, .{init.io, 3, &lock});
+    const wthread = try Thread.spawn(.{}, writer, .{init.io, &lock});
+
+    thr1.join();
+    thr2.join();
+    thr3.join();
+    wthread.join();
+}
+```
+
+
+## Säikeen luovuttaminen
+
+`Thread`-struct tukee luovuttamista `yield()`-metodin kautta.
+Säikeen luovuttaminen tarkoittaa, että säikeen suoritus pysäytetään väliaikaisesti
+ja se siirtyy käyttöjärjestelmäsi ajoittajan hallitseman prioriteettijonon loppuun.
+
+Eli kun luovutat säikeen, sanot pohjimmiltaan käyttöjärjestelmällesi seuraavaa:
+"Hei! Voisitko lopettaa tämän säikeen suorittamisen toistaiseksi ja palata jatkamaan sitä myöhemmin?".
+Voit tulkita tämän luovutusoperaation myös näin: "Voisitko alentaa tämän säikeen prioriteettia
+ja keskittyä tekemään muita asioita sen sijaan?".
+Joten tämä luovutusoperaatio on myös tapa
+pysäyttää tietty säie, jotta voit työskennellä ja priorisoida muita säikeitä sen sijaan.
+
+On tärkeää todeta, että säikeen luovuttaminen on nykyään "ei kovin yleinen" säieoperaatio.
+Toisin sanoen monet ohjelmoijat eivät käytä luovuttamista tuotannossa yksinkertaisesti siksi, että on vaikea käyttää
+tätä operaatiota ja saada se toimimaan oikein, ja myös siksi, että
+on parempia vaihtoehtoja. Useimmat ohjelmoijat käyttävät mieluummin `join()`-metodia.
+Itse asiassa useimmiten, kun näet jonkun käyttävän tätä "yield"-operaatiota jossakin koodiesimerkissä,
+he tekevät sen yleensä auttaakseen debuggaamaan kilpajuoksuolosuhteita sovelluksissaan.
+Eli tätä "yield"-operaatiota käytetään nykyään enimmäkseen debug-työkaluna.
+
+Joka tapauksessa, jos haluat luovuttaa säikeen, kutsu vain `yield()`-metodia siitä, näin:
+
+```{zig}
+#| eval: false
+thread.yield();
+```
+
+
+
+
+
+
+## Yleisiä ongelmia säikeissä
+
+
+
+### Umpikuja (deadlock)
+
+Umpikuja (deadlock) tapahtuu, kun kaksi tai useampi säie on estetty ikuisesti
+odottamassa toistensa vapauttavan resurssia. Tämä tapahtuu yleensä, kun mukana on useita lukkoja
+ja niiden hankkimisjärjestystä ei hallita hyvin.
+
+Alla oleva koodiesimerkki havainnollistaa umpikuja-tilannetta. Meillä on kaksi eri säiettä, jotka suorittavat
+kahta eri funktiota (`do_some_work1()` ja `do_some_work2()`) tässä esimerkissä. Meillä on myös kaksi erillistä
+mutexia. Jos käännät ja ajat tämän koodiesimerkin, huomaat, että ohjelma vain suorittaa loputtomasti
+päättymättä.
+
+Kun katsomme ensimmäistä säiettä, joka suorittaa `do_some_work1()`-funktiota, voimme
+huomata, että tämä funktio hankkii `mut1`-lukon ensin. Koska tämä on ensimmäinen operaatio,
+joka suoritetaan tässä säikeessä, joka on ohjelman ensimmäinen luotu säie.
+Sen jälkeen funktio nukkuu 1 sekunnin ajan
+simuloidakseen jonkinlaista työtä, ja sitten funktio yrittää hankkia `mut2`-lukon.
+
+Toisaalta, kun katsomme toista säiettä, joka suorittaa `do_some_work2()`-funktiota,
+näemme, että tämä funktio hankkii `mut2`-lukon ensin. Koska kun tämä säie luodaan ja se yrittää
+hankkia tämän `mut2`-lukon, ensimmäinen säie on vielä nukkumassa "nuku 1 sekunti" -rivillä.
+`mut2`-lukon hankkimisen jälkeen `do_some_work2()`-funktio myös nukkuu 1 sekunnin ajan
+simuloidakseen jonkinlaista työtä, ja sitten funktio yrittää hankkia `mut1`-lukon.
+
+Tämä luo umpikuja-tilanteen, koska molempien säikeiden "nuku 1 sekunti" -rivin jälkeen
+säie 1 yrittää hankkia `mut2`-lukon, mutta tämä lukko on tällä hetkellä säikeen 2 käytössä.
+Tällä hetkellä säie 2 yrittää kuitenkin myös hankkia `mut1`-lukon, joka on tällä hetkellä
+säikeen 1 käytössä. Siksi molemmat säikeet päätyvät odottamaan ikuisesti. Ne odottavat, että toinen vapauttaa
+lukon, jonka he haluavat hankkia.
+
+
+```{zig}
+#| eval: false
+const std = @import("std");
+const Thread = std.Thread;
+const clock: std.Io.Clock = .awake;
+const duration = std.Io.Duration.fromSeconds(1);
+const State = std.Io.Mutex.State;
+var mut1: std.Io.Mutex = .{.state=std.atomic.Value(State).init(.unlocked)};
+var mut2: std.Io.Mutex = .{.state=std.atomic.Value(State).init(.unlocked)};
+
+fn do_some_work1(io: std.Io) !void {
+    try mut1.lock(io);
+    try std.Io.sleep(io, duration, clock);
+    try mut2.lock(io);
+    std.debug.print("Doing some work 1\n", .{});
+    mut2.unlock(io);
+    mut1.unlock(io);
+}
+
+fn do_some_work2(io: std.Io) !void {
+    try mut2.lock(io);
+    try std.Io.sleep(io, duration, clock);
+    try mut1.lock(io);
+    std.debug.print("Doing some work 2\n", .{});
+    mut1.unlock(io);
+    mut2.unlock(io);
+}
+
+pub fn main(init: std.process.Init) !void {
+    const thr1 = try Thread.spawn(.{}, do_some_work1, .{init.io});
+    const thr2 = try Thread.spawn(.{}, do_some_work2, .{init.io});
+    thr1.join();
+    thr2.join();
+}
+```
+
+
+### `join()`- tai `detach()`-metodin kutsumatta jättäminen {#sec-not-call-join-detach}
+
+Kun et kutsu joko `join()`- tai `detach()`-metodia säikeelle, tästä säikeestä tulee "zombisäie",
+koska sillä ei ole selkeää "paluupistettä".
+Voit tulkita tämän myös näin: "kukaan ei ole kunnolla vastuussa säikeen hallinnasta".
+Kun emme määritä, onko säie joko *liitettävä* vai *irrotettu*,
+kukaan ei tule vastuulliseksi säikeen paluuarvon käsittelystä, eikä
+kukaan tule vastuulliseksi tämän säikeen resurssien siivoamisesta (tai vapauttamisesta).
+
+Et halua olla tässä tilanteessa, joten muista aina käyttää `join()`- tai `detach()`-metodia
+luomillesi säikeille. Kun et käytä jotakin näistä metodeista, menetämme
+hallinnan säikeeseen, ja sen resursseja ei koskaan vapauteta
+(eli olet vuotanut resursseja järjestelmään).
+
+
+### Tietyn säikeen peruuttaminen tai tappaminen
+
+Kun ajattelemme C:n `pthreads`-kirjastoa, on olemassa mahdollisuus tappaa tai peruuttaa
+säie asynkronisesti lähettämällä `SIGTERM`-signaali säikeelle `pthread_kill()`-funktion kautta.
+Mutta säikeen peruuttaminen tällä tavalla on huonoa. Se on vaarallisen huonoa. Seurauksena Zigin
+säikeiden toteutuksessa ei ole vastaavaa funktiota tai vastaavaa tapaa asynkronisesti peruuttaa tai tappaa
+säiettä.
+
+Siksi, jos haluat peruuttaa säikeen sen suorituksen keskellä Zigissä,
+yksi hyvä strategia, jonka voit käyttää, on ohjausvirta yhdessä `join()`-metodin kanssa.
+Tarkemmin sanottuna voit suunnitella säikeesi while-silmukan ympärille, joka tarkistaa jatkuvasti,
+pitäisikö säikeen jatkaa suoritusta.
+Jos on aika peruuttaa säie, voisimme saada while-silmukan katkeamaan ja liittää säikeen pääsäikeeseen
+kutsumalla `join()`-metodia.
+
+Alla oleva koodiesimerkki havainnollistaa tätä strategiaa tietyssä määrin.
+Tässä käytämme ohjausvirtaa katkaistaksemme while-silmukan ja poistuaksemme säikeestä aiemmin kuin
+alun perin suunnittelimme. Tämä esimerkki havainnollistaa myös, miten voimme käyttää
+atomiikko-olioita Zigissä `Value()`-geneerisen funktion avulla, josta olemme maininneet kohdassa @sec-atomic-operation.
+
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+const std = @import("std");
+const Thread = std.Thread;
+const clock: std.Io.Clock = .awake;
+const duration = std.Io.Duration.fromSeconds(2);
+var running = std.atomic.Value(bool).init(true);
+var counter: u64 = 0;
+
+fn do_more_work(io: std.Io) !void {
+    try std.Io.sleep(io, duration, clock);
+}
+
+fn work(io: std.Io) !void {
+    while (running.load(.monotonic)) {
+        for (0..10000) |_| {
+            counter += 1;
+        }
+        if (counter > 15000) {
+            std.debug.print("Time to cancel the thread.\n", .{});
+            running.store(false, .monotonic);
+        } else {
+            std.debug.print("Time to do more work.\n", .{});
+            try do_more_work(io);
+        }
+    }
+}
+
+pub fn main(init: std.process.Init) !void {
+    const thread = try Thread.spawn(.{}, work, .{init.io});
+    thread.join();
+}
+```
