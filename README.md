@@ -1,6 +1,6 @@
 # Introduction to Zig
 
-> **Suomenkielinen fork:** Tämä repositorio sisältää kirjan suomennoksen. Katso [TRANSLATION.md](TRANSLATION.md) rakenteesta, upstream-synkronoinnista ja julkaisusta.
+> **Suomenkielinen fork:** Tämä repositorio sisältää kirjan suomennoksen. https://mikko-huuskonen-pro.github.io/zig-book-FI/ Katso [TRANSLATION.md](TRANSLATION.md) rakenteesta, upstream-synkronoinnista ja julkaisusta.
 
 <a href=""><img src="Cover/cover-artv3.png" width="250" height="366" class="cover" align="right"/></a>
 
