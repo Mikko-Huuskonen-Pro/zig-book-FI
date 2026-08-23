@@ -1,7 +1,32 @@
 library(stringr)
 
-script_dir <- dirname(normalizePath(sys.frame(1)$ofile))
-source(file.path(script_dir, "..", "zig_engine.R"))
+find_zig_engine <- function() {
+  candidates <- c(
+    file.path(getwd(), "zig_engine.R"),
+    file.path(getwd(), "..", "zig_engine.R")
+  )
+
+  if (requireNamespace("knitr", quietly = TRUE)) {
+    input_dir <- tryCatch(knitr::current_input(dir = TRUE), error = function(e) NULL)
+    if (!is.null(input_dir) && nzchar(input_dir)) {
+      candidates <- c(
+        file.path(input_dir, "zig_engine.R"),
+        file.path(input_dir, "..", "zig_engine.R"),
+        candidates
+      )
+    }
+  }
+
+  for (path in unique(candidates)) {
+    if (file.exists(path)) {
+      return(normalizePath(path))
+    }
+  }
+
+  stop("zig_engine.R not found")
+}
+
+source(find_zig_engine())
 
 
 find_quarto_ <- function() {
