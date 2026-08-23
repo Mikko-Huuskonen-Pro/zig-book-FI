@@ -1,6 +1,7 @@
 library(stringr)
 
-source("zig_engine.R")
+script_dir <- dirname(normalizePath(sys.frame(1)$ofile))
+source(file.path(script_dir, "..", "zig_engine.R"))
 
 
 find_quarto_ <- function() {
