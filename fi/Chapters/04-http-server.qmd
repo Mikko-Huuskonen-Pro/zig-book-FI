@@ -1,0 +1,1054 @@
+---
+translation:
+  source: Chapters/04-http-server.qmd
+  source_sha256: b8097144568a1e726b48c57755fef97e35ff23a7f6be95f9830d9c4b30db9f2c
+  status: complete
+---
+
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+---
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+# Projekti 2 – HTTP-palvelimen rakentaminen alusta alkaen
+
+Tässä luvussa haluan toteuttaa kanssasi uuden
+pienen projektin. Tällä kertaa rakennamme
+HTTP-peruspalvelimen alusta alkaen.
+
+Zig Standard Libraryssä on jo HTTP-palvelin
+toteutettu, joka on saatavilla osoitteessa `std.http.Server`.
+Mutta jälleen kerran, tavoitteemme tässä luvussa on toteuttaa
+se **alusta alkaen**. Emme siis voi käyttää tätä saatavilla olevaa palvelinobjektia
+Zig Standard Librarysta.
+
+## Mikä on HTTP-palvelin?
+
+Ensinnäkin mikä on HTTP-palvelin?
+HTTP-palvelin, kuten mikä tahansa muu palvelin, on pohjimmiltaan
+ohjelma, joka toimii loputtomasti, äärettömässä silmukassa odottaen saapuvia yhteyksiä
+asiakkailta. Kun palvelin vastaanottaa saapuvan yhteyden, se
+hyväksyy yhteyden ja lähettää viestejä edestakaisin asiakkaan
+kanssa tämän yhteyden kautta.
+
+Mutta tämän yhteyden sisällä välitetyt viestit ovat
+tietyn muotoisia. Ne ovat HTTP-viestejä
+(eli viestit, jotka käyttävät HTTP-protokollan määritystä).
+HTTP-protokolla on nykyaikaisen verkon selkäranka.
+Maailmanlaajuinen verkko sellaisena kuin tunnemme sen tänään, ei olisi olemassa ilman
+HTTP-protokollaa.
+
+Verkkopalvelimet (eli HTTP-palvelimet) ovat palvelimia, jotka vaihtavat HTTP-viestejä asiakkaiden kanssa.
+Ja nämä HTTP-palvelimet ja HTTP-protokollamääritykset
+ovat välttämättömiä internetin toiminnalle nykyään.
+
+Tämä on koko prosessin kuva.
+Tässä on taas kaksi aihetta, palvelin (joka on
+ohjelma, joka pyörii loputtomasti ja odottaa saapuvia yhteyksiä),
+ja asiakas (joka on joku, joka haluaa muodostaa yhteyden palvelimeen,
+ja vaihtaa HTTP-viestejä sen kanssa).
+
+Saatat löytää materiaalia [HTTP-protokollasta, joka on saatavilla Mozilla MDN Docsista](https://developer.mozilla.org/en-US/docs/Web/HTTP/Overview)[^mdn-http]
+, loistava resurssi, jota voit myös tarkastella. Se antaa sinulle hyvän yleiskuvan siitä, miten
+HTTP toimii ja mikä rooli palvelimella on tässä asiassa.
+
+[^mdn-http]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Overview.
+
+
+## Miten HTTP-palvelin toimii? {#sec-how-http-works}
+
+Kuvittele HTTP-palvelin kuin suuren hotellin vastaanottovirkailijaa. Hotellissa
+sinulla on vastaanotto, ja sen sisällä on vastaanottovirkailija
+odottaa asiakkaiden saapumista. HTTP-palvelin on pohjimmiltaan vastaanottovirkailija
+joka odottaa loputtomasti uusia asiakkaita (tai HTTP:n yhteydessä uusia asiakkaita)
+saapuakseen hotelliin.
+
+Kun asiakas saapuu hotelliin, hän aloittaa keskustelun
+vastaanottovirkailijan kanssa. Hän kertoo vastaanottovirkailijalle, kuinka monta päivää hän haluaa yöpyä hotellissa.
+Sitten vastaanottovirkailija etsii vapaata asuntoa. Jos asuntoa on vapaana
+tällä hetkellä asiakas maksaa hotellimaksut, sitten hän saa asunnon avaimet,
+ja sitten hän menee asuntoon lepäämään.
+
+Koko tämän asiakkaan kanssa asiointiprosessin jälkeen (vapaavien asuntojen etsiminen,
+maksun vastaanottaminen, avainten luovuttaminen), vastaanottovirkailija palaa siihen, mitä hän oli
+tekemässä aiemmin, eli odottamassa. Hän odottaa uusien asiakkaiden saapumista.
+
+Yhteenvetona: HTTP-palvelin odottaa, että asiakkaat muodostavat yhteyden
+palvelimeen. Kun asiakas yrittää muodostaa yhteyden palvelimeen, palvelin hyväksyy tämän yhteyden,
+ja se alkaa vaihtaa viestejä asiakkaan kanssa tämän yhteyden kautta.
+Ensimmäinen viesti, joka tapahtuu tämän yhteyden sisällä, on aina viesti asiakkaalta
+palvelimelle. Tämän viestin nimi on *HTTP-pyyntö*.
+
+Tämä HTTP-pyyntö on HTTP-viesti, joka sisältää mitä
+asiakas haluaa palvelimelta. Se on kirjaimellisesti pyyntö. Asiakas
+joka on yhteydessä palvelimeen, pyytää tätä palvelinta tekemään jotain hänen puolestaan.
+
+On olemassa erilaisia ​​"pyyntötyyppejä", jotka asiakas voi lähettää HTTP-palvelimelle.
+Mutta yksinkertaisin pyyntötyyppi on, kun asiakas pyytää
+HTTP-palvelin palvelemaan (eli lähettämään) hänelle tietyn verkkosivun (joka on HTML-tiedosto).
+Kun kirjoitat selaimeen `google.com`, lähetät käytännössä HTTP-pyynnön Googlen
+HTTP-palvelimet. Tämä pyyntö pyytää näitä palvelimia lähettämään Googlen verkkosivun sinulle.
+
+Siitä huolimatta, kun palvelin vastaanottaa tämän ensimmäisen viestin, *HTTP-pyyntö*, se
+analysoi tätä pyyntöä ymmärtääkseen: kuka asiakas on? Mitä hän haluaa palvelimen tekevän?
+Onko asiakas antanut kaikki tarvittavat tiedot pyytämäänsä toimintoa varten?
+Ja niin edelleen.
+
+Kun palvelin ymmärtää, mitä asiakas haluaa, se suorittaa pyydetyn toiminnon
+jota pyydettiin, ja koko prosessin päättämiseksi palvelin lähettää takaisin
+HTTP-viestin asiakkaalle, joka kertoo, onnistuiko pyydetty toiminto,
+ja lopulta palvelin katkaisee (tai sulkee) yhteyden asiakkaan kanssa.
+
+Tätä viimeistä palvelimelta asiakkaalle lähetettyä HTTP-viestiä kutsutaan nimellä *HTTP-vastaus*.
+Palvelin vastaa asiakkaan pyyntöön.
+Vastausviestin päätavoitteena on kertoa asiakkaalle, onnistuiko
+pyydetty toiminto, ennen kuin palvelin sulkee yhteyden.
+
+
+## Miten HTTP-palvelin yleensä toteutetaan? {#sec-http-how-impl}
+
+Esimerkkinä käytetään C-kieltä. Materiaalia on monia
+opettaa kuinka kirjoittaa yksinkertainen HTTP-palvelin C-koodilla, kuten @jeffrey_http,
+tai @nipun_http tai @eric_http.
+Ottaen tämän huomioon, en näytä C-koodiesimerkkejä tässä, koska sinä
+voi löytää ne netistä.
+Mutta kuvailen teorian luomiseen tarvittavien vaiheiden takana
+tällainen HTTP-palvelin C:ssä.
+
+
+Pohjimmiltaan toteutamme yleensä HTTP-palvelimen C:ssä käyttämällä TCP-sockettta,
+joka sisältää seuraavat vaiheet:
+
+1. Luo TCP-socket-objekti.
+1. Sido nimi (tai tarkemmin sanottuna osoite) tähän socket-objektiin.
+1. Tee tämä socket-objekti, jotta voit alkaa kuunnella ja odottaa saapuvia yhteyksiä.
+1. Kun yhteys saapuu, hyväksymme tämän yhteyden ja vaihdamme HTTP-viestit (HTTP-pyyntö ja HTTP-vastaus).
+1. Sitten vain suljemme tämän yhteyden.
+
+
+Socket-objekti on pohjimmiltaan viestintäkanava.
+Olet luomassa kanavaa, jonka kautta ihmiset voivat lähettää viestejä.
+Kun luot socket-objektin, tätä objektia ei ole sidottu mihinkään tiettyyn kohteeseen
+osoite. Tämä tarkoittaa, että tämän objektin avulla sinulla on esitys viestintäkanavasta
+käsissäsi. Mutta tämä kanava ei ole tällä hetkellä saatavilla, tai se ei ole tällä hetkellä käytettävissä,
+koska sillä ei ole tunnettua osoitetta, josta sen löytäisi.
+
+Sitä "sidonta"-toiminto tekee. Se sitoo nimen (tai tarkemmin sanottuna osoitteen).
+tämä socketobjekti tai tämä viestintäkanava, jotta se tulee saataville,
+tai saatavilla tämän osoitteen kautta. Kun "kuuntelu" -toiminto saa socketin vastustamaan
+kuuntele saapuvia yhteyksiä tästä osoitteesta. Toisin sanoen "kuuntele"-toiminto
+saa socket odottamaan saapuvia yhteyksiä.
+
+Nyt, kun asiakas todella yrittää muodostaa yhteyden palvelimeen socket-osoitteen kautta
+jonka olemme määrittäneet luodaksemme tämän yhteyden asiakkaaseen,
+socket-objektin on hyväksyttävä tämä saapuva yhteys. Näin ollen, kun me
+vastaanottaa saapuvan yhteyden, asiakkaasta ja palvelimesta tulee
+ovat yhteydessä toisiinsa, ja he voivat alkaa lukea tai kirjoittaa viestejä tähän
+muodostettu yhteys.
+
+Kun olemme vastaanottaneet HTTP-pyynnön asiakkaalta, analysoi se ja lähetä HTTP-vastaus
+asiakkaalle, voimme sitten sulkea yhteyden ja lopettaa tämän viestinnän.
+
+
+## Palvelimen toteutus – osa 1
+
+### Palvelin-olion luominen {#sec-create-socket}
+
+Aloitetaan kirjoittamalla koodi, joka vastaa saapuvien yhteyksien kuuntelemisesta ja hyväksymisestä
+palvelimellemme. Jotta asiat olisivat lyhyempiä, kirjoitan tämän koodin erilliseen Zig-moduuliin,
+nimeltä `server.zig`.
+
+Nyt meidän on olennaisesti luotava koodiimme TCP-socket-objekti. Tämän kirjan aiempien versioiden osalta olemme päättäneet
+luodaksesi tällaisen TCP-socketin `std.posix.socket()`-toiminnon kautta Zig-standardikirjastosta.
+Mutta kun Zig 0.16:ssa esiteltiin uusi IO-liitäntä, tämä toiminto sopii oudolle
+uusi `std.Io.net.Stream` API.
+
+Tästä syystä valitsen tällä kertaa toisenlaisen reitin. Yhteenvetona aiomme luoda
+TCP-socket [`listen()`-menetelmän kautta lähteestä `std.Io.net.IpAddress`](https://ziglang.org/documentation/master/std/#std.Io.net.IpAddress.listen)[^listen-ipaddress].
+Tämän `std.Io.net.Server`-tyypin edustaman TCP-socketn kanssa käytämme `accept()`-menetelmää yhteyden muodostamiseen.
+palvelimemme ja asiakkaamme välillä. Tämän "yhteysobjektin" kautta, jonka saamme `accept()`:stä, saamme pääsyn
+stream, josta voimme vaihtaa viestejä palvelimen ja asiakkaan välillä.
+
+[^listen-ipaddress]: https://ziglang.org/documentation/master/std/#std.Io.net.IpAddress.listen
+
+Kuten mainitsin aiemmin kohdassa @sec-http-how-impl, jokainen luomamme socket-objekti
+edustaa viestintäkanavaa, ja meidän on sitova tämä kanava tiettyyn osoitteeseen.
+"Osoite" määritellään IP-osoitteeksi, tai tarkemmin sanottuna IPv4-osoitteeksi^[Se voi olla myös IPv6-osoite. Mutta normaalisti käytämme tähän IPv4-osoitetta.].
+Jokainen IPv4-osoite koostuu kahdesta osasta. Ensimmäinen komponentti on isäntä,
+joka on 4 numeron sarja, jotka on erotettu pistemerkeillä (`.`), joka tunnistaa käytetyn koneen.
+Toinen komponentti on portin numero, joka yksilöi tietyn
+ovi tai isäntäkoneessa käytettävä portti.
+
+Neljän numeron sarja (eli isäntä) tunnistaa koneen (eli itse tietokoneen), jossa
+tämä socket elää. Jokaisessa tietokoneessa on tavallisesti useita "ovia" käytettävissä hänen sisällään, koska
+Tämän ansiosta tietokone voi vastaanottaa useita yhteyksiä ja toimia niiden kanssa samanaikaisesti.
+Hän käyttää vain yhtä ovea jokaiseen liitäntään. Portin numero siis on
+pohjimmiltaan numero, joka identifioi tietokoneen "oven", jota pistoke käyttää
+vastaanottamaan saapuvia yhteyksiä.
+
+Asioiden yksinkertaistamiseksi käytän tässä esimerkissä IP-osoitetta, joka tunnistaa nykyisen koneemme.
+Tämä tarkoittaa, että socket-objektimme sijaitsee samassa tietokoneessa, jota käytämme tällä hetkellä
+(tämä tunnetaan myös nimellä "localhost") kirjoittaa tämän Zig-lähdekoodin.
+Sopimuksen mukaan IP-osoite, joka tunnistaa "localhostin", joka on nykyinen kone
+käyttävät, on IP `127.0.0.1`. Eli se on IP
+osoite, jota aiomme käyttää palvelimellamme.
+
+Nyt meidän on päätettävä, mitä porttinumeroa käytetään. Sopimuksen mukaan sellaisia on
+porttinumeroita, jotka on varattu, mikä tarkoittaa, että emme voi käyttää niitä omaan käyttöön
+tarkoituksiin, kuten portti 22 (jota yleensä käytetään SSH-yhteyksiin).
+TCP-yhteyksille, mikä on meidän tapauksessamme tässä,
+portin numero on 16-bittinen etumerkitön kokonaisluku (tyyppi `u16` Zigissä),
+siis välillä 0 - 65535 [@wikipedia_port].
+Joten voimme valita
+numero 0 - 65535 porttinumerollemme. Vuonna
+Tämän kirjan esimerkissä käytän porttinumeroa 3490
+(vain satunnainen luku).
+
+
+Kaikki tämä kuvailemamme prosessi ja vaiheet ovat keskittyneet omaan mukautettuun rakenteeemme
+nimeltä `Server`, joka on esillä alla. Huomaa, että luomme uuden `std.Io.net.IpAddress`
+objekti tämän rakenteen sisällä. Luomme myös `std.Io.net.Server`-objektimme `listen()`:n kautta
+menetelmä IP-osoiteobjektistamme.
+
+
+```{zig}
+#| auto_main: false
+#| build_type: "lib"
+const std = @import("std");
+const Socket = std.Io.net.Socket;
+const Protocol = std.Io.net.Protocol;
+
+pub const Server = struct {
+    host: []const u8,
+    port: u16,
+    addr: std.Io.net.IpAddress,
+    io: std.Io,
+
+    pub fn init(io: std.Io) !Server {
+        const host: []const u8 = "127.0.0.1";
+        const port: u16 = 3490;
+        const addr = try std.Io.net.IpAddress.parseIp4(
+            host, port
+        );
+
+        return.{.host=host,.port=port,.addr=addr,.io=io};
+    }
+
+    pub fn listen(self: Server) !std.Io.net.Server {
+        std.debug.print("Server Addr: {s}:{any}\n",.{self.host, self.port});
+        return try self.addr.listen(
+            self.io,
+           .{.mode=Socket.Mode.stream,.protocol=Protocol.tcp}
+        );
+    }
+};
+```
+
+
+### Kuuntelu ja yhteyksien vastaanotto
+
+
+Muista, että @sec-create-socket rakentamamme `Server`-rakennemäärittelymme on Zig-moduulissa nimeltä `server.zig`.
+Tästä syystä olen tuonut tämän moduulin päämoduuliimme (`main.zig`) alla olevassa esimerkissä päästäkseni `Server`-rakenteeseen.
+
+Nyt `Server`-objektiimme tallennetun socketn on alettava kuunnella ja hyväksyä uusia yhteyksiä.
+Voimme tehdä sen kutsumalla siitä menetelmää `listen()` ja sitten kutsumalla tuloksesta menetelmää `accept()`.
+Jos suoritat alla näkyvän päämoduulin, huomaat, että ohjelma ei lopu koskaan. Se vain pysyy jumissa.
+
+Tämä tapahtuu, koska ohjelma odottaa jotain tapahtuvan.
+Se odottaa, että joku yrittää muodostaa yhteyden osoitteeseen (`127.0.0.1:3490`), jossa
+palvelin on käynnissä ja kuuntelee saapuvia yhteyksiä. Tämä on mitä
+`listen()` menetelmä tekee, se saa socketin olemaan aktiivinen odottamassa jotakuta
+yhdistääksesi.
+
+Toisaalta `accept()`-menetelmä on toiminto, joka muodostaa yhteyden
+kun joku yrittää muodostaa yhteyden socketan. Tämä tarkoittaa, että `accept()`-menetelmä
+palauttaa tuloksena uuden yhteysobjektin. Ja voit käyttää tätä yhteysobjektia
+lukea tai kirjoittaa viestejä asiakkaalta tai asiakkaalle.
+Toistaiseksi emme tee mitään tämän yhteysobjektin kanssa.
+Mutta aiomme käyttää sitä seuraavassa osiossa.
+
+
+```{zig}
+#| eval: false
+const std = @import("std");
+const Server = @import("server.zig").Server;
+
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const server = try Server.init(io);
+    var listening = try server.listen();
+    const connection = try listening.accept(io);
+    defer connection.close(io);
+}
+```
+
+Tämä koodiesimerkki mahdollistaa yhden yhteyden. Toisin sanoen,
+palvelin odottaa yhtä saapuvaa yhteyttä, ja heti kun
+palvelin tehdään tällä ensimmäisellä muodostamallaan yhteydellä
+ohjelma päättyy ja palvelin pysähtyy.
+
+Tämä ei ole normi todellisessa maailmassa. Suurin osa ihmisistä, jotka kirjoittavat
+HTTP-palvelin, kuten tämä, laittaa yleensä `accept()`-menetelmän
+`while` (ääretön) silmukan sisällä, jossa jos yhteys
+luodaan `accept()`:llä, uusi suoritussäie luodaan käsittelemään
+tämä uusi yhteys ja asiakas. Eli tosielämän esimerkkejä HTTP-palvelimista
+yleensä luottaa siihen, että rinnakkaislaskenta toimii.
+
+Tällä mallilla palvelin yksinkertaisesti hyväksyy yhteyden,
+ja koko asiakkaan kanssa käsittelyn ja vastaanottamisen prosessi
+HTTP-pyyntö ja HTTP-vastauksen lähettäminen, kaikki tämä
+tehdään taustalla erillisessä suoritussäikeessä.
+
+Joten heti kun palvelin hyväksyy yhteyden ja luo
+erillisessä säikeessä palvelin palaa siihen, mitä hän teki aiemmin,
+eli odottaa loputtomasti uuden yhteyden hyväksymistä.
+Kun tämä pitää mielessä, yllä esitetty koodiesimerkki on a
+palvelin, joka palvelee vain yhtä asiakasta. Koska ohjelma
+päättyy heti, kun yhteys on hyväksytty.
+
+
+
+### Viestin lukeminen asiakkaalta {#sec-read-http-message}
+
+Nyt kun meillä on yhteys, eli yhteys
+`accept()`-funktiolla luomamme objektin, voimme nyt
+käytä tätä yhteysobjektia lukeaksesi kaikki asiakkaan viestit
+lähetä palvelimellemme. Mutta voimme käyttää sitä myös viestien lähettämiseen
+asiakkaalle.
+
+Perusidea on, jos **write** mitään dataa tähän yhteysobjektiin,
+sitten lähetämme dataa asiakkaalle, ja jos **read**
+tämä yhteysobjekti, niin luemme kaikki tiedot, jotka
+asiakas lähettää meille tämän yhteysobjektin kautta. Joten, vain
+pitää tämä logiikka mielessä. "Lue" on tarkoitettu asiakkaalta tulevien viestien lukemiseen,
+ja "kirjoita" on viestin lähettäminen asiakkaalle.
+
+Muista @sec-how-http-works, että ensimmäinen asia, joka meidän on tehtävä, on lukea HTTP-pyyntö
+jonka asiakas lähettää palvelimellemme. Koska se on ensimmäinen viesti, joka tapahtuu
+muodostetun yhteyden sisällä, ja sen seurauksena se on ensimmäinen
+asia, joka meidän täytyy käsitellä.
+
+Siksi aion luoda uuden Zig-moduulin tähän pieneen projektiin nimeltä `request.zig`
+säilyttää kaikki HTTP-pyyntöön liittyvät toiminnot
+yhdessä. Sitten luon uuden funktion nimeltä `read_request()`, joka tekee
+käytä yhteysobjektiamme lukeaksesi asiakkaan lähettämän viestin,
+joka on HTTP-pyyntö.
+
+Alla näet, että `read_request()`-toimintomme vastaanottaa kolme tuloa.
+`io`-argumentin pitäisi saada IO-tausta, jota haluamme käyttää IO-toiminnoissamme.
+`conn`-argumentti vastaanottaa yhteysobjektin, jonka loimme `accept()`:n kautta.
+menetelmällä. Vaikka `buffer`-argumentti vastaanottaa puskuriobjektin, johon olemme menossa
+tallentaaksemme asiakkaan palvelimellemme lähettämän pyynnön.
+
+```{zig}
+#| eval: false
+const std = @import("std");
+const Stream = std.Io.net.Stream;
+
+pub fn read_request(io: std.Io, conn: Stream, buffer: []u8) !void {
+    var recv_buffer: [1024]u8 = undefined;
+    var reader = conn.reader(io, &recv_buffer);
+    const reader_interface = &reader.interface;
+    var start_index: usize = 0;
+    for (0..5) |_| {
+        const len = try read_next_line(reader_interface, buffer, start_index);
+        start_index += len;
+    }
+}
+
+fn read_next_line(reader: *std.Io.Reader, buffer: []u8, start_index: usize) !usize {
+    const next_line = try reader.takeDelimiterInclusive('\n');
+    @memcpy(
+        buffer[start_index..(start_index + next_line.len)],
+        next_line[0..],
+    );
+    return next_line.len;
+}
+```
+
+
+Joten `read_request()`-toiminto vastaanottaa tulona yhteysobjektin, jota edustaa
+IO-virtaobjekti, sitten se lukee asiakkaan lähettämän HTTP-pyynnön "lukemalla tietoja IO-virrasta",
+ja tallentaa tämän viestin tähän puskuriobjektiin, jonka olemme antaneet syötteeksi.
+
+Tätä varten luon ensin `reader`-objektin IO-virtaobjektista.
+Sitten kutsun tämän `reader`-objektin `takeDelimiterInclusive()`-menetelmää yhdessä `@memcpy()`:n kanssa,
+lukeaksesi seuraavan tietorivin tehokkaasti virrasta. `read_request()`:ssä oleva for-silmukka toistaa
+tämä prosessi 6 kertaa, joten luemme tehokkaasti HTTP-pyynnön 6 ensimmäistä riviä ja tallennamme nämä tiedot
+aiemmin luomaan puskuriobjektiin.
+
+
+
+## Tarkastellaan ohjelman nykyistä tilaa
+
+
+Mielestäni nyt on hyvä aika nähdä, kuinka ohjelmamme tällä hetkellä toimii. Tehdäänkö?
+Joten ensimmäinen asia, jonka teen, on päivittää `main.zig`-moduuli pienessä Zig-projektissamme,
+niin, että `main()`-funktio kutsuu tätä uutta `read_request()`-funktiota, jonka olemme juuri luoneet.
+Lisään myös tulostettavan lausunnon funktion `main()` loppuun,
+vain jotta näet mitä HTTP-pyyntöä olemme juuri ladaneet puskuriobjektiin
+näyttää siltä.
+
+Lisäksi olen luomassa puskuriobjektia (`request_buffer`) `main()`-funktiossa, joka on
+Vastaan asiakkaan lähettämän viestin tallentamisesta ja olen myös
+käyttämällä `@memset()` alustaaksesi koko puskuriobjektin nollaan.
+Tämä on tärkeää varmistaaksemme, ettei meillä ole alustamatonta muistia
+tämä esine. Koska alustamaton muisti voi aiheuttaa määrittelemättömän toiminnan ohjelmassamme.
+
+
+```{zig}
+#| eval: false
+const std = @import("std");
+const Request = @import("request.zig");
+const Server = @import("server.zig").Server;
+
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const server = try Server.init(io);
+    var listening = try server.listen();
+    const connection = try listening.accept(io);
+    defer connection.close(io);
+
+    var request_buffer: [1000]u8 = undefined;
+    @memset(request_buffer[0..], 0);
+    try Request.read_request(
+        io,
+        connection,
+        request_buffer[0..]
+    );
+
+    std.debug.print("{s}\n",.{request_buffer});
+}
+```
+
+Nyt aion suorittaa tämän ohjelman komennolla `run`
+`zig`-kääntäjä. Mutta muista, kuten olemme surullisia aiemmin, heti kun suoritan tämän ohjelman, se tulee olemaan
+roikkua loputtomiin, koska ohjelma odottaa asiakasta, joka yrittää sitä
+muodosta yhteys palvelimeen.
+
+Tarkemmin sanottuna ohjelma pysähtyy riville
+`accept()`-kutsulla. Heti kun asiakas yrittää muodostaa yhteyden
+palvelimelle, suoritus "purkaa keskeytyksen" ja `accept()`-toiminto
+suoritetaan lopulta luomaan
+tarvitsemamme yhteysobjektin ja loput ohjelmasta
+juoksee.
+
+Voit nähdä sen @fig-print-zigrun1:ssä. Viesti `Server Addr: 127.0.0.1:3490`
+tulostetaan konsoliin, ja ohjelma odottaa nyt saapuvaa yhteyttä.
+
+![Kuvakaappaus ohjelman suorittamisesta](./../Figures/print-zigrun1.png){#fig-print-zigrun1}
+
+
+Voimme vihdoin yrittää muodostaa yhteyden tähän palvelimeen, ja voimme tehdä tämän useilla tavoilla.
+Voisimme käyttää esimerkiksi seuraavaa Python-skriptiä:
+
+```python
+import requests
+requests.get("http://127.0.0.1:3490")
+```
+
+Tai voisimme myös avata minkä tahansa haluamamme verkkoselaimen ja kirjoittaa
+URL-osoite `localhost:3490`. HUOM: `localhost` on sama asia kuin
+IP `127.0.0.1`. Kun painat enteriä, verkkoselaimesi käynnistyy
+tähän osoitteeseen selain todennäköisesti tulostaa ensin viestin
+sanomalla, että "tämä sivu ei toimi", ja sitten se toimii
+todennäköisesti vaihtuu uudeksi viestiksi, jossa sanotaan, että "sivusto ei voi olla
+saavutettu".
+
+Saat nämä "virheilmoitukset" selaimeen, koska
+se ei saanut vastausta palvelimelta. Toisin sanoen, kun web
+selain yhdistetty palvelimeemme, se lähetti HTTP-pyynnön muodostetun yhteyden kautta.
+Sitten selain odotti saavansa HTTP-vastauksen takaisin, mutta
+se ei saanut vastausta palvelimelta (emme ole vielä ottaneet käyttöön HTTP-vastauslogiikkaa).
+
+Mutta se on okei. Olemme saavuttaneet halutun tuloksen tällä hetkellä,
+jonka tarkoituksena on muodostaa yhteys palvelimeen ja nähdä HTTP-pyyntö
+jonka on lähettänyt selain (tai Python-skripti)
+palvelimelle.
+
+Jos palaat auki jättämääsi konsoliin
+kun olet suorittanut ohjelman, näet, että
+ohjelma lopetti suorituksensa, ja uusi viesti on
+tulostetaan konsoliin, mikä on varsinainen HTTP-pyyntö
+Web-selaimen palvelimelle lähettämä viesti.
+
+Koska luemme vain HTTP-pyynnön ensimmäiset 6 riviä koodissamme,
+tämä ohjelma ei ehkä tulosta koko HTTP-pyyntöviestiä sinulle. Se tulee
+riippuu siitä, kuinka suuri HTTP-pyyntöviesti oli.
+Voit nähdä HTTP-pyynnön tulostettuna @fig-print-zigrun2.
+
+![Kuvakaappaus verkkoselaimen lähettämästä HTTP-pyynnöstä](./../Figures/print-zigrun2.png){#fig-print-zigrun2}
+
+
+
+
+## Oppiminen Enumsista Zig {#sec-enum}:ssä
+
+Enums-rakenteet ovat saatavilla Zigissä avainsanan `enum` kautta.
+Enum (lyhenne sanoista "enumeraatio") on erityinen rakenne, joka edustaa vakioarvojen ryhmää.
+Joten, jos sinulla on muuttuja, joka voi olettaa lyhyen ja tunnetun
+arvojoukon, saatat haluta liittää tämän muuttujan enum-rakenteeseen,
+varmistaaksesi, että tämä muuttuja olettaa vain arvon tästä joukosta.
+
+Klassinen esimerkki enumeista ovat päävärit. Jos jostain syystä, ohjelmasi
+täytyy edustaa yhtä pääväreistä, voit luoda luettelon
+joka edustaa yhtä näistä väreistä.
+Alla olevassa esimerkissä luomme numeron `PrimaryColorRGB`, joka
+edustaa pääväriä RGB-värijärjestelmästä. Käyttämällä tätä luetteloa,
+Olen taattu, että esimerkiksi `acolor`-objekti sisältää
+yksi näistä kolmesta arvosta: `RED`, `GREEN` tai `BLUE`.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const PrimaryColorRGB = enum {
+    RED, GREEN, BLUE
+};
+const acolor = PrimaryColorRGB.RED;
+_ = acolor;
+```
+
+Jos koodini jostain syystä yrittää tallentaa tiedostoon `acolor`,
+arvo, joka ei ole tässä sarjassa, saan virheilmoituksen
+varoittaa minua siitä, että arvoa, kuten "MAGENTA", ei ole olemassa
+`PrimaryColorRGB` enumin sisällä.
+Sitten voin helposti korjata virheeni.
+
+
+```{zig}
+#| eval: false
+const acolor = PrimaryColorRGB.MAGENTA;
+```
+
+```
+e1.zig:5:36: error: enum 'PrimaryColorRGB' has
+        no member named 'MAGENTA':
+    const acolor = PrimaryColorRGB.MAGENTA;
+                                   ^~~~~~~
+```
+
+Konepellin takana Zigin enumit toimivat samalla tavalla kuin enumit
+Työskentele C:ssä. Jokainen enum-arvo esitetään olennaisesti kokonaislukuna.
+Ensimmäinen arvo joukossa esitetään nollana,
+sitten toinen arvo on yksi jne.
+
+Yksi asia, jonka aiomme oppia seuraavassa osiossa, on se
+enumeissa voi olla menetelmiä. Odota... Mitä? Tämä on hämmästyttävää!
+Kyllä, enumit Zigissä ovat samanlaisia ​​kuin rakenteet, ja niillä voi olla
+yksityisiä ja julkisia menetelmiä niiden sisällä.
+
+
+
+
+
+
+
+## Palvelimen käyttöönotto - Osa 2
+
+Nyt tässä osiossa haluan keskittyä asiakkaalta saamamme HTTP-pyynnön jäsentämiseen.
+Jotta HTTP-pyyntöviestin jäsentäminen onnistuisi, meidän on ensin ymmärrettävä sen rakenne.
+Yhteenvetona HTTP-pyyntö on tekstiviesti, joka on jaettu kolmeen eri osaan (tai osaan):
+
+- Ylimmän tason otsikko, joka osoittaa HTTP-pyynnön menetelmän, URI:n ja sanomassa käytetyn HTTP-version.
+- Luettelo HTTP-otsikoista.
+- HTTP-pyynnön runko.
+
+### Ylätason otsikko
+
+HTTP-pyynnön ensimmäisellä tekstirivillä on aina kolme tärkeintä
+tiedot pyynnöstä. Nämä kolme HTTP-pyynnön tärkeintä attribuuttia
+erotetaan yksinkertaisella välilyönnillä tällä pyynnön ensimmäisellä rivillä.
+Ensimmäinen tieto on parhaillaan oleva HTTP-menetelmä
+käytetään pyynnössä, toiseksi meillä on URI, johon tämä HTTP-pyyntö lähetetään,
+ja kolmanneksi, meillä on HTTP-protokollan versio, jota käytetään tässä HTTP-pyynnössä.
+
+Alla olevasta katkelmasta löydät esimerkin tästä HTTP-pyynnön ensimmäisestä rivistä.
+Ensinnäkin meillä on tämän pyynnön HTTP-menetelmä (`GET`). Monet ohjelmoijat
+viittaa URI-komponenttiin (`/users/list`) "API-päätepisteeksi", jolle HTTP-pyyntö
+lähetetään osoitteeseen. Tämän erityisen pyynnön yhteydessä, koska se on GET-pyyntö,
+voit myös sanoa, että URI-komponentti on polku resurssiin, jota haluamme käyttää,
+tai polku asiakirjaan (tai tiedostoon), jonka haluamme noutaa palvelimelta.
+
+```
+GET /users/list HTTP/1.1
+```
+
+Huomaa myös, että tämä HTTP-pyyntö käyttää HTTP-protokollan versiota 1.1,
+joka on Internetissä käytetyn protokollan suosituin versio.
+
+
+
+### HTTP-otsikoiden luettelo
+
+Useimmat HTTP-pyynnöt sisältävät myös osan HTTP-otsikoista,
+joka on vain luettelo tähän liittyvistä määritteistä tai avainarvo-pareista
+erityinen pyyntö. Tämä osio tulee aina heti pyynnön "ylimmän tason otsikon" jälkeen.
+
+Tämän luvun tarkoitukseen, joka on yksinkertaisen HTTP-palvelimen rakentaminen,
+aiomme jättää tämän HTTP-pyynnön osan huomiotta yksinkertaisuuden vuoksi.
+Mutta useimmat HTTP-palvelimet, jotka ovat luonnossa, jäsentävät ja käyttävät niitä
+HTTP-otsikot muuttaa tapaa, jolla palvelin vastaa pyyntöön
+asiakkaan lähettämä.
+
+Esimerkiksi monet tosielämässä kohtaamamme pyynnöt tulevat mukana
+HTTP-otsikko nimeltä `Accept`. Tässä otsikossa on luettelo [MIME-tyypeistä](https://en.wikipedia.org/wiki/Media_type)[^mime].
+Tämä luettelo ilmaisee tiedostomuodot, joita asiakas voi lukea, jäsentää tai tulkita.
+Toisin sanoen tulkitset tämän otsikon myös siten, että asiakas sanoo seuraavan lauseen
+palvelimelle: "Hei! Katsokaa, voin lukea vain HTML-dokumentteja, joten lähetä minulle takaisin
+asiakirja, joka on HTML-muodossa."
+
+[^mime]: https://en.wikipedia.org/wiki/Media_type.
+
+Jos HTTP-palvelin voi lukea ja käyttää tätä `Accept`-otsikkoa, palvelin voi tunnistaa
+mikä on asiakkaalle lähetettävän asiakirjan paras tiedostomuoto. Ehkä HTTP-palvelimella on
+sama asiakirja useissa muodoissa, esimerkiksi JSON-muodossa, XML-muodossa, HTML-muodossa ja PDF-muodossa,
+mutta asiakas voi ymmärtää vain HTML-muodossa olevia asiakirjoja. Se on tarkoitus
+tästä `Accept`-otsikosta.
+
+
+### Vartalo
+
+Teksti tulee HTTP-otsikoiden luettelon jälkeen, ja se on valinnainen HTTP-pyynnön osa, mikä tarkoittaa, että
+Kaikki HTTP-pyynnöt sisältävät tekstin. Esimerkiksi jokainen HTTP-pyyntö, joka käyttää
+GET-menetelmä ei yleensä tule rungon mukana.
+
+Koska GET-pyyntöä käytetään tietojen pyytämiseen palvelimelle lähettämisen sijaan.
+Joten runko-osa liittyy enemmän POST-menetelmään, joka on menetelmä, joka sisältää
+tietojen lähettäminen palvelimelle käsiteltäväksi ja tallennettavaksi.
+
+Koska aiomme tukea vain GET-menetelmää tässä projektissa, se tarkoittaa sitä
+meidän ei myöskään tarvitse välittää pyynnön tekstistä.
+
+
+
+### HTTP Method -luettelon luominen
+
+Jokaisessa HTTP-pyynnössä on eksplisiittinen menetelmä. HTTP-pyynnössä käytetty menetelmä
+tunnistetaan yhdellä seuraavista sanoista:
+
+- SAADA;
+- POST;
+- VAIHTOEHDOT;
+- PATCH;
+- POISTA;
+- ja joitain muita menetelmiä.
+
+Jokaista HTTP-menetelmää käytetään tietyntyyppiseen tehtävään. Esimerkiksi POST-menetelmä on normaalisti
+käytetään joidenkin tietojen lähettämiseen määränpäähän. Toisin sanoen sitä käytetään
+lähettää tietoja HTTP-palvelimelle, jotta palvelin voi käsitellä ja tallentaa ne.
+
+Toisena esimerkkinä GET-menetelmää käytetään yleensä sisällön hakemiseen palvelimelta.
+Toisin sanoen käytämme tätä menetelmää aina, kun haluamme palvelimen lähettävän joitakin
+sisältö takaisin meille. Se voi olla mitä tahansa sisältöä. Se voi olla web-sivu,
+asiakirjatiedosto tai jotkin tiedot JSON-muodossa.
+
+Kun asiakas lähettää POST HTTP -pyynnön, palvelimen lähettämän HTTP-vastauksen ainoa tarkoitus on yleensä
+ilmoittaa asiakkaalle, onko palvelin käsitellyt ja tallentaneet tiedot onnistuneesti.
+Sitä vastoin kun palvelin vastaanottaa GET HTTP -pyynnön, palvelin lähettää sisällön
+jota asiakas pyysi itse HTTP-vastauksessa. Tämä osoittaa, että menetelmä liittyy
+HTTP-pyyntö muuttaa paljon kunkin osapuolen dynamiikkaa ja rooleja
+pelaa koko prosessissa.
+
+Koska HTTP-pyynnön HTTP-menetelmä tunnistetaan tällä erittäin pienellä ja erityisellä
+Sanajoukko, olisi mielenkiintoista luoda enum-rakenne HTTP-menetelmää edustamaan.
+Tällä tavalla voimme helposti tarkistaa, onko asiakkaalta saamamme HTTP-pyyntö a
+HTTP-menetelmä, jota tuemme tällä hetkellä pienessä HTTP-palvelinprojektissamme.
+
+Alla oleva `Method`-rakenne edustaa tätä luetteloa.
+Huomaa, että toistaiseksi vain GET HTTP -menetelmä sisältyy tähän
+luettelointi. Koska tämän luvun tarkoitusta varten haluan
+ottaa käyttöön vain GET HTTP -menetelmän. Siksi en ole
+mukaan lukien muut tämän luettelon HTTP-menetelmät.
+
+```{zig}
+#| build_type: "lib"
+pub const Method = enum { GET };
+```
+
+
+Nyt mielestäni meidän pitäisi lisätä kaksi menetelmää tähän enum-rakenteeseen. Yksi menetelmä on `is_supported()`,
+joka on funktio, joka palauttaa loogisen arvon, joka osoittaa, tuetaanko HTTP-syöttömenetelmää
+tai ei HTTP-palvelimemme kautta. Toinen on `init()`, joka on konstruktorifunktio, joka ottaa syötteenä merkkijonon,
+ja yrittää muuntaa sen `Method`-arvoksi.
+
+
+Mutta näiden toimintojen rakentamiseksi käytän Zig Standard Libraryn toimintoa nimeltä
+`StaticStringMap()`. Tämän toiminnon avulla voimme luoda yksinkertaisen kartan merkkijonoista enum-arvoihin.
+Toisin sanoen voimme käyttää tätä karttarakennetta yhdistämään merkkijonon vastaavaan enum-arvoon.
+Jossain määrin tämä standardikirjaston erityinen rakenne toimii melkein kuin "hashtable" -rakenne,
+ja se on optimoitu pienille sanajoukoille tai pienille näppäinsarjoille, mikä on tässä tapauksessa.
+Aiomme puhua lisää hashtableeista Zigissä @sec-maps-hashtables.
+
+Jotta voit käyttää tätä "staattista merkkijonokartta" -rakennetta, sinun on tuotava se `std.static_string_map`-moduulista
+Zig Standard Librarysta. Tuon tämän vain lyhentääkseni ja helpottaakseni kirjoittamista
+toimii eri ja lyhyemmällä nimellä (`Map`).
+
+Kun `Map()` on tuotu, voimme vain käyttää tätä funktiota enum-rakenteen yli
+joita aiomme käyttää tuloksena olevassa kartassa. Tässä tapauksessamme se on `Method` enum-rakenne
+jonka ilmoitimme viimeisessä koodiesimerkissä. Sitten kutsun `initComptime()`-menetelmää
+kartta, eli luettelo avain-arvo-pareista, joita aiomme käyttää.
+
+Alla olevasta esimerkistä näet, että kirjoitin tämän kartan käyttämällä useita anonyymejä rakenneliteraaaleja.
+Ensimmäisen (tai "ylitason") struct-literaalin sisällä meillä on luettelo (tai sarja) struct-literaaleja.
+Jokainen tämän luettelon rakenneliteraali edustaa erillistä avain-arvo-paria. Ensimmäinen elementti (tai avain)
+jokaisessa avain-arvo-parissa tulee aina olla merkkijonoarvo. Vaikka toisen elementin pitäisi
+on arvo enum-rakenteesta, jota olet käyttänyt `Map()`-funktiossa.
+
+
+```{zig}
+#| eval: true
+#| build_type: "lib"
+const std = @import("std");
+pub const Method = enum { GET };
+const Map = std.static_string_map.StaticStringMap;
+const MethodMap = Map(Method).initComptime(.{
+   .{ "GET", Method.GET },
+});
+```
+
+Siksi `MethodMap`-objekti on pohjimmiltaan `std::map`-objekti C++:sta, tai
+Pythonin `dict`-objekti. Voit hakea (tai saada) sen enum-arvon
+vastaa tiettyä avainta käyttämällä kartan menetelmää `get()`
+esine. Tämä menetelmä palauttaa valinnaisen arvon, joten `get()`-menetelmä saattaa
+tuloksena on nolla-arvo.
+
+Voimme käyttää tätä etunamme havaitaksemme, onko tietty HTTP-menetelmä
+tuettu tai ei HTTP-palvelimellamme. Koska jos menetelmä `get()` palauttaa nollan,
+se tarkoittaa, että se ei löytänyt menetelmää, jonka annoimme `MethodMap`-objektin sisällä, ja
+Tämän seurauksena HTTP-palvelimemme ei tue tätä menetelmää.
+
+Alla oleva `init()`-menetelmä ottaa syötteeksi merkkijonoarvon ja sitten se yksinkertaisesti välittää tämän merkkijonoarvon
+`MethodMap`-objektimme menetelmään `get()`. Tämän seurauksena meidän pitäisi saada vastaava enum-arvo
+tähän syöttömerkkijonoon.
+
+Huomaa alla olevassa esimerkissä, että menetelmä `init()` palauttaa joko virheen
+(mikä voi tapahtua, jos menetelmä `?` palauttaa `unreachable`, katso lisätietoja @sec-null-handling)
+tai tuloksena `Method`-objekti. Koska `GET` on tällä hetkellä ainoa arvo `Method`-luettelossamme
+rakenne, se tarkoittaa, että menetelmä `init()` palauttaa todennäköisesti tuloksena arvon `Method.GET`.
+
+Huomaa myös, että `is_supported()`-menetelmässä käytämme valinnaista palautettua arvoa
+`get()`-menetelmällä `MethodMap`-objektistamme. If-lause purkaa valinnaisen arvon
+palauttaa tällä menetelmällä ja palauttaa `true`, jos tämä valinnainen arvo ei ole nolla-arvo.
+Muussa tapauksessa se yksinkertaisesti palauttaa `false`.
+
+```{zig}
+#| eval: true
+#| build_type: "lib"
+const std = @import("std");
+pub const Method = enum {
+    GET,
+    pub fn init(text: []const u8) !Method {
+        return MethodMap.get(text).?;
+    }
+    pub fn is_supported(m: []const u8) bool {
+        const method = MethodMap.get(m);
+        if (method) |_| {
+            return true;
+        }
+        return false;
+    }
+};
+const Map = std.static_string_map.StaticStringMap;
+const MethodMap = Map(Method).initComptime(.{
+   .{ "GET", Method.GET },
+});
+```
+
+
+
+
+
+
+
+### Jäsennyspyyntöfunktion kirjoittaminen
+
+Nyt kun loimme HTTP-menetelmäämme edustavan luettelon,
+meidän pitäisi alkaa kirjoittaa funktiota, joka vastaa
+itse asiassa jäsentää HTTP-pyyntöä.
+
+Ensimmäinen asia, jonka voimme tehdä, on kirjoittaa HTTP-pyyntöä edustava rakenne.
+Otetaan esimerkkinä alla oleva `Request`-rakenne. Se sisältää kolme
+olennaiset tiedot "ylitason" otsikosta (eli ensimmäiseltä riviltä)
+HTTP-pyynnössä.
+
+```{zig}
+#| eval: false
+const Request = struct {
+    method: Method,
+    version: []const u8,
+    uri: []const u8,
+    pub fn init(method: Method,
+                uri: []const u8,
+                version: []const u8) Request {
+        return Request{
+           .method = method,
+           .uri = uri,
+           .version = version,
+        };
+    }
+};
+```
+
+
+`parse_request()`-funktion pitäisi saada syötteenä merkkijono. Tämä syöttömerkkijono
+sisältää HTTP-pyyntö -sanoman, ja jäsennystoiminnon pitäisi
+lukea ja ymmärtää tämän viestin yksittäiset osat.
+
+Muista nyt, että tämän luvun tarkoituksessa välitämme vain ensimmäisestä
+tämän viestin rivi, joka sisältää "ylitason otsikon" tai HTTP-pyynnön kolme olennaista attribuuttia,
+jotka ovat käytetty HTTP-menetelmä, URI ja HTTP-versio.
+
+Huomaa, että käytän funktiota `indexOfScalar()` `parse_request()`:ssä. Tämä toiminto alkaen
+Zig Standard Library palauttaa ensimmäisen indeksin, jossa annamme skalaariarvon
+tapahtuu merkkijonossa. Tässä tapauksessa tarkastelen uuden rivimerkin (`\n`) ensimmäistä esiintymistä.
+Koska jälleen kerran välitämme vain HTTP-pyyntöviestin ensimmäisestä rivistä.
+Tämä on rivi, jolla meillä on kolme tietoa, jotka haluamme jäsentää
+(HTTP-versio, HTTP-menetelmä ja URI).
+
+Siksi käytämme tätä `indexOfScalar()`-toimintoa
+rajoittaaksemme jäsennysprosessimme viestin ensimmäiselle riville.
+On myös syytä mainita, että `indexOfScalar()`-funktio palauttaa valinnaisen arvon.
+Siksi käytän avainsanaa `orelse` vaihtoehtoisen arvon antamiseen siltä varalta,
+funktion palauttama arvo on nolla-arvo.
+
+Koska kukin näistä kolmesta attribuutista on erotettu yksinkertaisella välilyönnillä, me
+voisi käyttää Zig Standard Libraryn funktiota `splitScalar()` jakamiseen
+syötemerkkijono osioihin etsimällä jokaista näkyviin tulevaa sijaintia
+yksinkertainen tila. Toisin sanoen tämä `splitScalar()`-funktio on vastaava
+`split()`-menetelmään Pythonissa tai `std::getline()`-funktioon C++:sta,
+tai `strtok()`-toiminto C:ssä.
+
+Kun käytät tätä `splitScalar()`-funktiota, saat tuloksena iteraattorin.
+Tässä iteraattorissa on `next()`-menetelmä, jota voit käyttää iteraattorin edistämiseen
+seuraavaan kohtaan tai jaetun merkkijonon seuraavaan osaan.
+Huomaa, että kun käytät `next()`, menetelmä ei vain edistä iteraattoria,
+mutta se myös palauttaa osion jaetun nykyiseen osaan
+merkkijono tuloksena.
+
+Nyt, jos haluat saada siivu jaetun nykyiseen osaan
+merkkijonoa, mutta et siirrä iteraattoria seuraavaan kohtaan, voit käyttää
+`peek()`-menetelmällä. Sekä `next()`- että `peek()`-menetelmä palauttaa valinnaisen arvon, joka on
+miksi käytän `?`-menetelmää näiden valinnaisten arvojen purkamiseen.
+
+
+```{zig}
+#| eval: false
+pub fn parse_request(text: []u8) Request {
+    const line_index = std.mem.indexOfScalar(
+        u8, text, '\n'
+    ) orelse text.len;
+    var iterator = std.mem.splitScalar(
+        u8, text[0..line_index], ' '
+    );
+    const method = try Method.init(iterator.next().?);
+    const uri = iterator.next().?;
+    const version = iterator.next().?;
+    const request = Request.init(method, uri, version);
+    return request;
+}
+```
+
+
+Kuten kuvailin @sec-zig-strings, Zigin merkkijonot ovat yksinkertaisesti kielen tavutaulukoita.
+Löydät siis paljon erinomaisia aputoimintoja suoraan merkkijonojen kanssa työskentelemiseen
+tämän Zig Standard Libraryn `mem`-moduulin sisällä.
+Olemme jo kuvanneet joitain näistä hyödyllisistä aputoiminnoista
+@sec-strings-useful-funs.
+
+
+
+### Jäsennyspyyntötoiminnon käyttäminen
+
+Nyt kun kirjoitimme HTTP-pyynnön jäsentämisestä vastaavan funktion,
+voimme lisätä funktiokutsun `parse_request()` sisään
+ohjelmamme `main()`-toiminto.
+
+Sen jälkeen on hyvä idea testata vielä kerran ohjelmamme tilaa.
+Suoritan tämän ohjelman uudelleen `run`-komennolla `zig`-kääntäjästä,
+sitten yhdistän verkkoselaimellani uudelleen palvelimeen URL-osoitteen `localhost:3490` kautta ja lopuksi
+`Request`-objektin lopputulos tulostetaan konsoliin.
+
+Nopea havainto, koska olen käyttänyt `any` muotomäärittelijä
+Tulosta lausunto, `Request`:n datajäsenet `version` ja `uri`
+struct tulostettiin raakakokonaislukuarvoina. Merkkijonotietoja tulostetaan
+koska kokonaislukuarvot ovat yleisiä Zigissä, ja muista, että nämä kokonaislukuarvot ovat vain desimaaliesitys
+tavut, jotka muodostavat kyseessä olevan merkkijonon.
+
+Alla olevassa tuloksessa desimaaliarvot 72, 84, 84, 80, 47, 49, 46, 49 ja 13,
+ovat tavuja, jotka muodostavat tekstin "HTTP/1.1". Ja kokonaisluku 47 on desimaaliarvo
+merkki `/`, joka edustaa URI-osoitettamme tässä pyynnössä.
+
+```{zig}
+#| eval: false
+const std = @import("std");
+const Request = @import("request.zig");
+const Server = @import("server.zig").Server;
+
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const server = try Server.init(io);
+    var listening = try server.listen();
+    const connection = try listening.accept(io);
+    defer connection.close(io);
+
+    var request_buffer: [1000]u8 = undefined;
+    @memset(request_buffer[0..], 0);
+    try Request.read_request(
+        io,
+        connection,
+        request_buffer[0..]
+    );
+    const request = Request.parse_request(request_buffer[0..]);
+    std.debug.print("{any}\n",.{request});
+}
+```
+
+```
+request.Request{
+   .method = request.Method.GET,
+   .version = {72, 84, 84, 80, 47, 49, 46, 49, 13},
+   .uri = {47}
+}
+```
+
+
+
+### HTTP-vastauksen lähettäminen asiakkaalle
+
+Tässä viimeisessä osassa kirjoitamme vastuullisen logiikan
+HTTP-vastauksen lähettäminen palvelimelta asiakkaalle. Tehdä asioita
+yksinkertainen, tämän projektin palvelin lähettää vain yksinkertaisen verkkosivun
+sisältää tekstin "Hei maailma".
+
+Ensin luon projektiin uuden Zig-moduulin nimeltä `response.zig`.
+Tässä moduulissa kerron vain kaksi funktiota. Jokainen toiminto
+vastaa tiettyä tilakoodia HTTP-vastauksessa.
+`send_200()`-toiminto lähettää HTTP-vastauksen tilakoodilla 200
+(joka tarkoittaa "menestystä") asiakkaalle. Vaikka `send_404()`-toiminto lähettää vastauksen
+tilakoodilla 404 (joka tarkoittaa "Ei löydy").
+
+Tämä ei todellakaan ole ergonomisin ja sopivin tapa käsitellä
+HTTP-vastaus, mutta se toimii meidän tapauksessamme tässä. Rakennamme vain leluprojekteja
+tässä kirjassa kirjoittamamme lähdekoodin ei siis tarvitse olla täydellinen.
+Sen pitää vain toimia!
+
+
+```{zig}
+#| eval: false
+const std = @import("std");
+const Stream = std.Io.net.Stream;
+
+pub fn send_200(conn: Stream, io: std.Io) !void {
+    const message = (
+        "HTTP/1.1 200 OK\nContent-Length: 48"
+        ++ "\nContent-Type: text/html\n"
+        ++ "Connection: Closed\n\n<html><body>"
+        ++ "<h1>Hello, World!</h1></body></html>"
+    );
+    var stream_writer = conn.writer(io, &.{});
+    _ = try stream_writer.interface.write(message);
+}
+
+pub fn send_404(conn: Stream, io: std.Io) !void {
+    const message = (
+        "HTTP/1.1 404 Not Found\nContent-Length: 50"
+        ++ "\nContent-Type: text/html\n"
+        ++ "Connection: Closed\n\n<html><body>"
+        ++ "<h1>File not found!</h1></body></html>"
+    );
+    var stream_writer = conn.writer(io, &.{});
+    _ = try stream_writer.interface.write(message);
+}
+```
+
+Huomaa, että molemmat funktiot vastaanottavat yhteysobjektin syötteenä, luo
+tämän yhteysobjektin kirjoittajaobjekti käyttää sitten
+`write()`-menetelmää kirjoittaaksesi HTTP-vastausviestin suoraan
+tähän viestintäkanavaan. Tämän seurauksena puolue toisessa
+yhteyden puoli (eli asiakas) vastaanottaa tällaisen viestin.
+
+Useimmilla reaalimaailman HTTP-palvelimilla on yksi toiminto (tai yksi rakenne) tehokkaaseen käsittelyyn
+vastaus. Se saa HTTP-pyynnön jo jäsennettynä syötteenä ja yrittää sitten rakentaa
+HTTP-vastauksen bitti kerrallaan, ennen kuin funktio lähettää sen yhteyden yli.
+
+Meillä olisi myös erikoistunut rakenne edustamaan HTTP-vastausta, ja
+monia menetelmiä, joita käytettäisiin vasteobjektin kunkin osan tai komponentin rakentamiseen.
+
+
+## Lopputulos
+
+Voimme nyt päivittää jälleen kerran `main()`-toimintomme sisällyttääksemme siihen uuden
+toimii `response.zig`-moduulista. Ensin minun on tuotava tämä moduuli
+`main.zig`-moduuliimme, lisään sitten funktiokutsut `send_200()`
+ja `send_404()`.
+
+Huomaa, että käytän if-lauseita päättääkseni, mitä "vastausfunktiota" kutsun,
+perustuu erityisesti HTTP-pyynnössä olevaan URI:hen. Jos käyttäjä pyysi
+sisältö (tai asiakirja), jota ei ole palvelimellamme, meidän tulee vastata
+tilakoodilla 404. Mutta koska meillä on vain yksinkertainen HTTP-palvelin, jolla ei ole
+todelliset lähetettävät asiakirjat, voimme vain tarkistaa, onko URI juuripolku (`/`)
+tai olla päättämättä, mitä toimintoa kutsua.
+
+Huomaa myös, että käytän toimintoa `std.mem.eql()` Zig Standard Librarysta
+tarkistaaksesi, onko `uri` merkkijono sama kuin merkkijono `"/"`. Meillä on
+kuvasi tämän toiminnon jo @sec-strings-useful-funs, joten paluu
+tämä osio, jos et ole vielä tutustunut tähän toimintoon.
+
+
+```{zig}
+#| eval: false
+const std = @import("std");
+const Method = @import("request.zig").Method;
+const Request = @import("request.zig");
+const Response = @import("response.zig");
+const Server = @import("server.zig").Server;
+
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const server = try Server.init(io);
+    var listening = try server.listen();
+    const connection = try listening.accept(io);
+    defer connection.close(io);
+
+    var request_buffer: [1000]u8 = undefined;
+    @memset(request_buffer[0..], 0);
+    try Request.read_request(
+        io,
+        connection,
+        request_buffer[0..]
+    );
+    const request = Request.parse_request(request_buffer[0..]);
+    if (request.method == Method.GET) {
+        if (std.mem.eql(u8, request.uri, "/")) {
+            try Response.send_200(connection, io);
+        } else {
+            try Response.send_404(connection, io);
+        }
+    }
+}
+```
+
+
+Nyt kun olemme säätäneet `main()`-toimintoamme, voin nyt suorittaa ohjelmamme ja
+katso näiden viimeisten muutosten vaikutukset. Ensin suoritan ohjelman vielä kerran komennolla
+`zig`-kääntäjän `run`-komento. Ohjelma jumiutuu odottamaan, että asiakas muodostaa yhteyden.
+
+Sitten avaan verkkoselaimen ja yritän muodostaa yhteyden palvelimeen uudelleen käyttämällä URL-osoitetta `localhost:3490`.
+Tällä kertaa sen sijaan, että saisit jonkinlaisen virheilmoituksen selaimelta, saat viestin
+"Hello World" tulostettu selaimeesi. Koska tällä kertaa palvelin lähetti HTTP-vastauksen
+onnistuneesti selaimeen, kuten @fig-print-zigrun3 osoittaa.
+
+
+![HTTP-vastauksessa lähetetty Hello World -viesti](./../Figures/print-zigrun3.png){#fig-print-zigrun3}
