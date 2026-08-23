@@ -6,7 +6,6 @@ install.packages(
     "stringr",
     "gt",
     "tibble"
-  )
-  , repos = "https://cloud.r-project.org"
-
+  ),
+  repos = Sys.getenv("RSPM", unset = "https://cloud.r-project.org")
 )
