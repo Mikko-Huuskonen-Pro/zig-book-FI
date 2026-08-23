@@ -1,5 +1,4 @@
-# Suomenkielinen kirja. Rakenna: quarto render (fi/-hakemistossa)
-# tai juuresta: quarto render --project fi
+# Suomenkielinen kirja. Rakenna: cd fi && quarto render
 
 project:
   type: book

@@ -39,7 +39,8 @@ jobs:
           "$ZIG_DIR/zig" version
 
       - name: Render Finnish book
-        run: quarto render --project fi
+        working-directory: fi
+        run: quarto render
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

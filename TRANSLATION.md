@@ -103,10 +103,7 @@ translation:
 # Nix-ympäristö (suositeltu)
 nix develop
 Rscript dependencies.R
-quarto render --project fi
-
-# tai fi/-hakemistosta
-cd fi && quarto render
+quarto render
 ```
 
 Avaa `docs/index.html` selaimessa.
