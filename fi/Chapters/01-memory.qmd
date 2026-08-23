@@ -1,0 +1,599 @@
+---
+translation:
+  source: Chapters/01-memory.qmd
+  source_sha256: 18d7c674e1528ad2c6a95087472312c69a4729acb8be572990932433199bb510
+  status: complete
+---
+
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+---
+
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+# Muisti ja allokaattorit {#sec-memory-chap}
+
+
+Tässä luvussa puhumme muistista. Miten Zig hallitsee muistia? Mitä yleisiä työkaluja käytetään? Onko Zigissä muistin kannalta tärkeitä erityispiirteitä? Vastaukset löytyvät tästä.
+
+Tietokoneet tarvitsevat muistia toimiakseen. Muisti toimii väliaikaisena tallennustilana laskennan aikana syntyvälle datalle ja arvoille. Ilman muistia ohjelmointikielten keskeiset käsitteet "muuttujat" ja "oliot" olisivat mahdottomia.
+
+
+
+
+## Muistitilat
+
+Jokainen Zig-lähdekoodissasi luomasi olio täytyy tallentaa johonkin tietokoneesi muistiin. Sen mukaan, missä ja miten määrittelet olion, Zig käyttää eri "muistitilaa" eli eri muistityyppiä sen tallentamiseen.
+
+Eri muistityypit palvelevat yleensä eri tarkoituksia.
+Zigissä on kolme muistityyppiä (tai kolme eri muistitilaa), joista välitämme. Ne ovat:
+
+- globaali data-alue (tai "global data section");
+- pino (stack);
+- keko (heap);
+
+
+### Käännösaikana tiedossa oleva vs. ajonaikana tiedossa oleva {#sec-compile-time}
+
+Yksi strategia, jota Zig käyttää päättäessään, mihin kukin ilmoittamasi olio tallennetaan, on tarkastella kyseisen olion arvoa. Tarkemmin sanottuna tutkimalla, onko arvo tiedossa "käännösaikana" vai "ajonaikana".
+
+Kun kirjoitat Zig-ohjelmaa, joidenkin ohjelmassasi kirjoittamiesi olioiden arvot ovat *tiedossa käännösaikana*. Tämä tarkoittaa, että kun käännät Zig-lähdekoodiasi, `zig`-kääntäjä pystyy käännösprosessin aikana selvittämään tietyn olion tarkan arvon lähdekoodissasi.
+Myös kunkin olion pituuden (tai koon) tunteminen on tärkeää. Siksi jokaisen ohjelmassasi kirjoittamasi olion pituus (tai koko) on joissain tapauksissa *tiedossa käännösaikana*.
+
+`zig`-kääntäjä on enemmän kiinnostunut tietämään tietyn olion pituuden (tai koon) kuin sen varsinaisen arvon. Jos `zig`-kääntäjä kuitenkin tietää olion arvon, se automaattisesti tietää myös olion koon, koska se voi yksinkertaisesti laskea olion koon arvon koon perusteella.
+
+Siten `zig`-kääntäjän prioriteetti on selvittää jokaisen lähdekoodissasi olevan olion koko.
+Jos kyseisen olion arvo on tiedossa käännösaikana, `zig`-kääntäjä automaattisesti tietää olion koon/pituuden. Jos olion arvoa ei kuitenkaan tiedetä käännösaikana, olion koko on tiedossa käännösaikana vain, jos ja vain jos olion tyypillä on tunnettu kiinteä koko.
+
+Jotta tyypillä olisi tunnettu kiinteä koko, tyypin datajäsenten koon täytyy olla kiinteä.
+Jos tyyppi sisältää esimerkiksi siivun, jolla ei ole selkeää kokoa, tyypillä ei ole tunnettua kiinteää kokoa, koska ajonaikana siivu voi olla eri kokoinen
+(eli siinä voi olla 2, 50 tai 1000 alkiota jne.).
+
+Esimerkiksi kuten @sec-zig-strings kuvaa, merkkijono Zigissä on sisäisesti tavutaulukko. Mutta kuten @sec-string-slice-versus-array käsittelimme, tätä tavutaulukkoa käytetään yleensä siivuna (`[]const u8`).
+Jos tietty funktio saa merkkijonon syötteenä (esimerkiksi tietokantaan luotavan käyttäjän nimi tai haettavan tuotteen nimi), syötteenä saatavan merkkijonon kokoa on vaikea ennakoida.
+
+Mieti tätä hetki: kontekstista riippuen funktiosi voi saada eri merkkijonoja syötteenä, joilla on eri koot. Se voi olla 100 merkin pituinen merkkijono tai ehkä 10 merkin pituinen. Jos emme voi kehitysvaiheessa ennakoida tarkkaa syötteenä saatavan merkkijonon kokoa, syötemerkkijonon koko ei todennäköisesti ole tiedossa käännösaikana.
+
+Jokainen tyyppi tai struct-määrittely, joka sisältää datajäsenen ilman eksplisiittistä kiinteää kokoa, tekee tästä tyypistä tai uudesta structista tyypin, jolla ei ole tunnettua kiinteää kokoa käännösaikana.
+
+Sitä vastoin jos ilmoittamasi structin tyyppi sisältää datajäsenen, joka on taulukko kiinteällä tunnetulla koolla, kuten `[60]u8` (joka määrittää 60 `u8`-arvon taulukon), tästä tyypistä tai structista tulee tyyppi, jolla on tunnettu kiinteä koko käännösaikana.
+Tässä tapauksessa `zig`-kääntäjän ei tarvitse tietää käännösaikana minkään tämän tyypin olion tarkkaa arvoa, koska kääntäjä voi selvittää tarvittavan tallennustilan katsomalla tyypin kokoa.
+
+
+Katsotaan esimerkkiä. Alla olevassa lähdekoodissa on kaksi vakiota (`name` ja `array`).
+Koska näiden olioiden arvot on kirjoitettu itse lähdekoodiin (`"Pedro"` ja lukujono 1–4), `zig`-kääntäjä voi helposti selvittää näiden vakioiden (`name` ja `array`) arvot käännösprosessin aikana.
+Tämä on se, mitä "tiedossa käännösaikana" tarkoittaa. Se viittaa mihin tahansa Zig-lähdekoodissasi olevaan olioon, jonka arvo voidaan tunnistaa käännösaikana.
+
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+fn input_length(input: []const u8) usize {
+    const n = input.len;
+    return n;
+}
+
+pub fn main() !void {
+    const name = "Pedro";
+    const array = [_]u8{1, 2, 3, 4};
+    _ = name; _ = array;
+}
+```
+
+Toinen ääripää ovat oliot, joiden arvoja ei tiedetä käännösaikana.
+Funktioparametrit ovat klassinen esimerkki tästä, koska kunkin funktioparametrin arvo riippuu siitä arvosta, jonka annat parametrille funktiota kutsuttaessa.
+
+Esimerkiksi funktio `input_length()` sisältää argumentin nimeltä `input`, joka on vakioiden `u8`-kokonaislukujen siivu (`[]const u8`).
+On mahdotonta tietää tämän argumentin arvoa käännösaikana. Myöskään sen kokoa/pituutta ei voida tietää, koska kyseessä on siivu, jolla ei ole eksplisiittisesti kiinteää kokoa argumentin tyyppiannotaatiossa.
+
+Tiedämme siis, että `input`-argumentti on `u8`-kokonaislukujen siivu. Emme kuitenkaan tiedä käännösaikana sen arvoa eikä sen kokoa.
+Nämä tiedot ovat tiedossa vain ajonaikana, eli aikana, jolloin ohjelma suoritetaan.
+Seurauksena lausekkeen `input.len` arvo on tiedossa vain ajonaikana.
+Tämä on ominaispiirre kaikille funktioille. Muista, että funktioparametrien arvot eivät yleensä ole "käännösaikana tiedossa".
+
+Kuten aiemmin mainitsin, kääntäjälle tärkeintä on kuitenkin tietää olion koko käännösaikana, ei välttämättä sen arvo. Vaikka emme tiedä olion `n` arvoa, joka on lausekkeen `input.len` tulos, käännösaikana, tiedämme sen koon, koska lauseke `input.len` palauttaa aina `usize`-tyyppisen arvon ja tyypillä `usize` on tunnettu kiinteä koko.
+
+
+
+### Globaali data-alue
+
+Globaali data-alue on Zig-ohjelmasi suoritettavan tiedoston erityinen osio, joka vastaa käännösaikana tiedossa olevien arvojen tallentamisesta.
+
+Jokainen vakio, jonka arvo on tiedossa käännösaikana ja jonka ilmoitat lähdekoodissasi, tallennetaan globaaliin data-alueeseen. Myös jokainen lähdekoodiin kirjoittamasi literaaliarvo, kuten merkkijono `"this is a string"`, kokonaisluku `10` tai totuusarvo `true`, tallennetaan globaaliin data-alueeseen.
+
+Rehellisesti sanottuna sinun ei tarvitse välittää paljon tästä muistitilasta. Et voi hallita sitä etkä käyttää sitä tarkoituksellisesti omiin tarkoituksiisi.
+Tämä muistitila ei myöskään vaikuta ohjelmasi logiikkaan.
+Se yksinkertaisesti on olemassa ohjelmassasi.
+
+
+### Pino vs. keko
+
+Jos olet perehtynyt järjestelmäohjelmointiin tai matalan tason ohjelmointiin yleensä, olet todennäköisesti kuullut "ottelusta" pino vs. keko. Nämä ovat kaksi eri muistityyppiä eli eri muistitilaa, jotka molemmat ovat saatavilla Zigissä.
+
+Nämä kaksi muistityyppiä eivät todellisuudessa "ottelu toisiaan vastaan". Aloittelijoiden yleinen virhe on tulkita "x vs. y" -tyyliset otsikot kirjaimellisesti. Nämä kaksi muistityyppiä täydentävät toisiaan.
+Lähes jokaisessa kirjoittamassasi Zig-ohjelmassa käytät todennäköisesti molempia yhdessä.
+Kuvaamme kunkin muistitilan yksityiskohtaisesti seuraavissa osioissa. Toistaiseksi haluan vain kiteyttää näiden kahden muistityypin pääeron.
+
+Pohjimmiltaan pinomuistia käytetään yleensä arvojen tallentamiseen, joiden pituus on kiinteä ja tiedossa käännösaikana. Sitä vastoin kekomuisti on *dynaaminen* muistitila, eli sitä käytetään arvojen tallentamiseen, joiden pituus voi kasvaa ohjelmasi suorituksen (ajonaikana) aikana [@jenny2022].
+
+Ajonaikana kasvavat pituudet liittyvät luontaisesti "ajonaikana tiedossa oleviin" arvoihin.
+Toisin sanoen, jos oliolla on pituus, joka voi kasvaa ajonaikana, olion pituudesta tulee tuntematon käännösaikana. Jos pituus ei ole tiedossa käännösaikana, myös olion arvosta tulee tuntematon käännösaikana.
+Tällaiset oliot tulisi tallentaa kekomuistitilaan, joka on dynaaminen muistitila ja voi kasvaa tai kutistua olioidesi koon mukaan.
+
+
+
+### Pino {#sec-stack}
+
+Pino on muistityyppi, joka hyödyntää *pinotietorakennetta*, mistä nimi juontuu.
+"Pino" on *tietorakenne*, joka käyttää "last in, first out" (LIFO) -mekanismia arvojen tallentamiseen. Oletan, että tunnet tämän tietorakenteen.
+Jos et tunne, [Wikipedia-sivu](https://en.wikipedia.org/wiki/Stack_(abstract_data_type))[^wiki-stack] tai [Geeks For Geeks -sivu](https://www.geeksforgeeks.org/stack-data-structure/)[^geek-stack] ovat molemmat erinomaisia ja helppoja resursseja tietorakenteen ymmärtämiseen.
+
+[^wiki-stack]: <https://en.wikipedia.org/wiki/Stack_(abstract_data_type)>
+[^geek-stack]: <https://www.geeksforgeeks.org/stack-data-structure/>
+
+Pinomuistitila on muistityyppi, joka tallentaa arvoja pinotietorakennetta käyttäen.
+Se lisää ja poistaa arvoja muistista noudattaen "last in, first out" (LIFO) -periaatetta.
+
+Joka kerta kun teet funktiokutsun Zigissä, pinosta varataan tila kyseiselle funktiokutsulle [@jenny2022; @zigdocs].
+Jokaisen funktiokutsussa annetun funktioargumentin arvo tallennetaan tähän pinotilaan. Myös jokainen funktion laajuudessa ilmoittamasi paikallinen olio tallennetaan yleensä samaan pinotilaan.
+
+
+Alla olevassa esimerkissä olio `result` on paikallinen olio, joka on ilmoitettu funktion `add()` laajuudessa. Siksi tämä olio tallennetaan funktiolle `add()` varattuun pinotilaan.
+Myös olio `r` (joka on ilmoitettu funktion `add()` laajuuden ulkopuolella) tallennetaan pinoon.
+Koska se on ilmoitettu "ulommassa" laajuudessa, olio tallennetaan tähän ulompaan laajuuteen kuuluvaan pinotilaan.
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+fn add(x: u8, y: u8) u8 {
+    const result = x + y;
+    return result;
+}
+
+pub fn main() !void {
+    const r = add(5, 27);
+    _ = r;
+}
+```
+
+
+Jokainen funktion laajuudessa ilmoittamasi olio tallennetaan aina siihen tilaan, joka on varattu kyseiselle funktiolle pinomuistissa. Tämä pätee myös `main()`-funktion laajuudessa ilmoitettuihin olioihin.
+Kuten odotat, ne tallennetaan `main()`-funktiolle varattuun pinotilaan.
+
+Erittäin tärkeä yksityiskohta pinomuistista on, että **se vapauttaa itsensä automaattisesti**.
+Tämä on erittäin tärkeää, muista se. Kun oliot tallennetaan pinomuistiin, sinun ei tarvitse vapauttaa tai tuhota niitä.
+Ne tuhoutuvat automaattisesti, kun pinotila vapautetaan funktion laajuuden lopussa.
+
+Kun funktiokutsu palaa (tai päättyy), pinossa varattu tila tuhotaan ja kaikki siinä olleet oliot katoavat sen mukana.
+Tämä mekanismi on olemassa, koska tila ja sen oliot eivät ole enää tarpeen, kun funktio on "hoitanut asiansa".
+Käyttäen yllä esiteltyä funktiota `add()` esimerkkinä, olio `result` tuhoutuu automaattisesti, kun funktio palaa.
+
+::: {.callout-important}
+Funktion pinotilassa olevat paikalliset oliot vapautetaan/tuhotaan automaattisesti funktion laajuuden lopussa.
+:::
+
+
+Sama logiikka pätee mihin tahansa Zigin erityisrakenteeseen, jolla on oma laajuutensa aaltosulkeiden (`{}`) ympäröimänä.
+For-silmukat, while-silmukat, if/else-lauseet jne. Jos esimerkiksi ilmoitat paikallisen olion for-silmukan laajuudessa, se on käytettävissä vain kyseisen for-silmukan laajuudessa, koska kun for-silmukan laajuus päättyy, sille varattu pinotila vapautetaan.
+Alla oleva esimerkki havainnollistaa tätä.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+#| eval: false
+// This does not compile successfully!
+const a = [_]u8{0, 1, 2, 3, 4};
+for (0..a.len) |i| {
+    const index = i;
+    _ = index;
+}
+// Trying to use an object that was
+// declared in the for loop scope,
+// and that does not exist anymore.
+std.debug.print("{d}\n", .{index});
+```
+
+
+
+Tärkeä seuraus tästä mekanismista on, että kun funktio palaa, et voi enää käyttää mitään muistiosoitetta, joka oli kyseiselle funktiolle varatussa pinotilassa, koska tila on tuhottu.
+Tämä tarkoittaa, että jos paikallinen olio on pinossa, et voi kirjoittaa funktiota, joka **palauttaa osoittimen tähän olioon**.
+
+Mieti tätä hetki. Jos kaikki pinon paikalliset oliot tuhoutuvat funktion laajuuden lopussa, miksi edes harkitsisit osoittimen palauttamista yhteen niistä? Osoitin on parhaimmillaan virheellinen tai todennäköisemmin "määrittelemätön".
+
+Yhteenvetona: on täysin ok kirjoittaa funktio, joka palauttaa paikallisen olion itsensä tuloksena, koska silloin palautat olion arvon.
+Mutta jos paikallinen olio on pinossa, sinun ei koskaan pitäisi kirjoittaa funktiota, joka palauttaa osoittimen tähän paikalliseen olioon, koska osoittimen osoittama muistiosoite ei enää ole olemassa.
+
+
+Käyttäen jälleen funktiota `add()` esimerkkinä: jos kirjoitat funktion uudelleen niin, että se palauttaa osoittimen paikalliseen olioon `result`, `zig`-kääntäjä kääntää ohjelmasi ilman varoituksia tai virheitä. Ensi silmäyksellä koodi näyttää toimivan odotetusti. Mutta tämä on harhaa!
+
+Jos yrität katsoa olion `r` arvoa tai käyttää olio `r` toisessa lausekkeessa tai funktiokutsussa, saat määrittelemätöntä käyttäytymistä ja vakavia bugeja ohjelmaasi [@zigdocs, katso "Lifetime and Ownership"[^life] ja "Undefined Behaviour"[^undef] -osiot].
+
+[^life]: <https://ziglang.org/documentation/master/#Lifetime-and-Ownership>
+[^undef]: <https://ziglang.org/documentation/master/#Undefined-Behavior>
+
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+fn add(x: u8, y: u8) *const u8 {
+    const result = x + y;
+    return &result;
+}
+
+pub fn main() !void {
+    // This code compiles successfully. But it has
+    // undefined behaviour. Never do this!!!
+    // The `r` object is undefined!
+    const r = add(5, 27); _ = r;
+}
+```
+
+Tämä "virheellinen osoitin pinomuuttujalle" -ongelma on hyvin tunnettu monissa ohjelmointikieliyhteisöissä.
+Jos yrität tehdä saman esimerkiksi C- tai C++-ohjelmassa (eli palauttaa osoitteen pinossa olevaan paikalliseen olioon), saat myös määrittelemätöntä käyttäytymistä.
+
+::: {.callout-important}
+Jos funktiosi paikallinen olio on pinossa, sinun ei koskaan pitäisi palauttaa osoitinta tähän paikalliseen olioon funktiosta, koska osoitin muuttuu aina määrittelemättömäksi funktion palattua, kun funktion pinotila tuhotaan laajuuden lopussa.
+:::
+
+Mutta entä jos tarvitset tätä paikallista oliota jollain tavalla funktion paluun jälkeen? Miten voit tehdä sen? Vastaus on: "samalla tavalla kuin C- tai C++-ohjelmassa: palauttamalla osoitteen keossa olevaan olioon". Kekomuistilla on paljon joustavampi elinkaari, ja se antaa sinulle kelvollisen osoittimen funktion paikalliseen olioon, vaikka funktio olisi jo palannut laajuudestaan.
+
+
+### Keko {#sec-heap}
+
+Yksi tärkeä pinon rajoitus on, että vain oliot, joiden pituus/koko on tiedossa käännösaikana, voidaan tallentaa siihen.
+Sitä vastoin keko on paljon dynaamisempi (ja joustavampi) muistityyppi. Se on täydellinen muistityyppi olioille, joiden koko/pituus voi kasvaa ohjelmasi suorituksen aikana.
+
+Lähes mikä tahansa palvelimena toimiva sovellus on klassinen keon käyttötapaus.
+HTTP-palvelin, SSH-palvelin, DNS-palvelin, LSP-palvelin... mikä tahansa palvelin.
+Yhteenvetona palvelin on sovellus, joka toimii pitkiä aikoja ja käsittelee saapuvia pyyntöjä.
+
+Keko on hyvä valinta tällaiselle järjestelmälle, koska palvelin ei tiedä etukäteen, kuinka monta pyyntöä se saa käyttäjiltä ollessaan aktiivinen. Se voi olla yksi pyyntö, 5000 pyyntöä tai jopa nolla pyyntöä.
+Palvelimen täytyy pystyä allokoimaan ja hallitsemaan muistiaan saamiensa pyyntöjen määrän mukaan.
+
+Toinen keskeinen ero pinon ja keon välillä on, että keko on muistityyppi, jota sinä, ohjelmoijana, hallitset täysin. Tämä tekee keosta joustavamman muistityypin, mutta myös vaikeamman käsitellä, koska sinä olet vastuussa kaikkeen siihen liittyvästä: mihin muisti allokoidaan, kuinka paljon allokoidaan ja milloin muisti vapautetaan.
+
+> Toisin kuin pinomuisti, kekomuisti allokoidaan eksplisiittisesti ohjelmoijien toimesta, eikä sitä vapauteta ennen kuin se vapautetaan eksplisiittisesti [@jenny2022].
+
+Olion tallentamiseksi kekoon sinun, ohjelmoijan, täytyy eksplisiittisesti käskeä Zigia tekemään niin käyttämällä allokaattoria kekoon tilan varaamiseen. @sec-allocators esittelee, miten voit käyttää allokaattoreita muistin allokointiin Zigissä.
+
+::: {.callout-important}
+Jokainen kekoon allokoimasi muisti täytyy vapauttaa eksplisiittisesti sinun, ohjelmoijan, toimesta.
+:::
+
+Useimmat Zigin allokaattorit allokoivat muistia kekoon. Poikkeuksia ovat `ArenaAllocator()` ja `FixedBufferAllocator()`. `ArenaAllocator()` on erityinen allokaattori, joka toimii yhdessä toisen allokaattorityypin kanssa.
+Toisaalta `FixedBufferAllocator()` on allokaattori, joka perustuu pinossa luotuihin puskuriolioihin. Tämä tarkoittaa, että `FixedBufferAllocator()` tekee allokointeja vain pinoon.
+
+
+
+
+### Yhteenveto
+
+Näiden yksityiskohtien jälkeen voimme nopeasti kerrata oppimamme.
+Yhteenvetona `zig`-kääntäjä käyttää seuraavia sääntöjä päättäessään, mihin kukin ilmoittamasi olio tallennetaan:
+
+1. jokainen literaaliarvo (kuten `"this is string"`, `10` tai `true`) tallennetaan globaaliin data-alueeseen.
+1. jokainen vakio (`const`), jonka arvo **on tiedossa käännösaikana**, tallennetaan myös globaaliin data-alueeseen.
+1. jokainen olio (vakio tai ei), jonka pituus/koko **on tiedossa käännösaikana**, tallennetaan nykyisen laajuuden pinotilaan.
+1. jos olio luodaan allokaattoriolion metodilla `alloc()` tai `create()`, olio tallennetaan kyseisen allokaattoriolion käyttämään muistitilaan. Useimmat Zigin allokaattorit käyttävät kekomuistia, joten olio todennäköisesti on keossa (`FixedBufferAllocator()` on poikkeus).
+1. kekoon pääsee vain allokaattoreiden kautta. Jos olioasi ei luotu allokaattoriolion metodeilla `alloc()` tai `create()`, se tuskin on kekoon tallennettu olio.
+
+
+## Pinon ylivuoto {#sec-stack-overflow}
+
+Muistin allokointi pinoon on yleensä nopeampaa kuin kekoon. Tämä parempi suorituskyky tulee kuitenkin monien rajoitusten mukana. Olemme jo käsitelleet monia pinon rajoituksia @sec-stack. Haluan kuitenkin puhua vielä yhdestä tärkeästä rajoituksesta: pinon koosta.
+
+Pino on kooltaan rajallinen. Koko vaihtelee tietokoneesta toiseen ja riippuu monista asioista (tietokonearkkitehtuuri, käyttöjärjestelmä jne.). Tämä koko ei yleensä ole kovin suuri. Siksi käytämme pinoa yleensä vain väliaikaisten ja pienten olioiden tallentamiseen.
+
+Jos yrität tehdä pinoon allokoinnin, joka on niin suuri, että se ylittää pinon kokorajan, tapahtuu *pinon ylivuoto* (stack overflow) ja ohjelmasi kaatuu. Toisin sanoen pinon ylivuoto tapahtuu, kun yrität käyttää enemmän tilaa kuin pinossa on saatavilla.
+
+Tämä ongelma on hyvin samankaltainen kuin *puskurin ylivuoto* (buffer overflow), eli yrität käyttää enemmän tilaa kuin "puskuriossa" on. Pinon ylivuoto kuitenkin kaataa ohjelman aina, kun taas puskurin ylivuoto ei aina kaada ohjelmaa (vaikka usein kaataakin).
+
+Alla näet esimerkin pinon ylivuodosta. Yritämme allokoida pinoon hyvin suuren `u64`-arvojen taulukon. Näet, että ohjelma ei suoritu onnistuneesti, vaan kaatuu "segmentation fault" -virheilmoituksella.
+
+```{zig}
+#| build_type: "ast"
+#| auto_main: true
+var very_big_alloc: [1000 * 1000 * 24]u64 = undefined;
+@memset(very_big_alloc[0..], 0);
+```
+
+```
+Segmentation fault (core dumped)
+```
+
+Tämä segmentation fault -virhe johtuu pinon ylivuodosta, joka aiheutui suuresta pinomuistin allokoinnista `very_big_alloc`-olion tallentamiseksi.
+Siksi hyvin suuret oliot tallennetaan yleensä kekoon pinon sijaan.
+
+
+
+## Allokaattorit {#sec-allocators}
+
+Yksi Zigin keskeisistä piirteistä on, ettei Zigissä ole "piilotettuja muistinallokointeja".
+Tämä tarkoittaa käytännössä, ettei standardikirjastossa tapahdu allokointeja selän takana [@zigguide].
+
+Tämä on tunnettu ongelma erityisesti C++:ssa, koska joissakin operaattoreissa allokoidaan muistia kulissien takana, eikä sitä voi tietää ennen kuin lukee näiden operaattorien lähdekoodin ja löytää muistinallokointikutsut.
+Monet ohjelmoijat pitävät tätä käyttäytymistä ärsyttävänä ja vaikeana seurata.
+
+Zigissä, jos funktio, operaattori tai mikä tahansa standardikirjaston osa tarvitsee allokoida muistia suorituksensa aikana, sen täytyy saada syötteenä käyttäjän tarjoama allokaattori, jotta se voi allokoida tarvitsemansa muistin.
+
+Tämä luo selkeän eron funktioiden välillä, jotka "eivät" ja jotka "todella" allokoivat muistia. Katso vain funktion argumentteja.
+Jos funktiolla tai operaattorilla on allokaattoriolio yhtenä syötteenään/argumenttinaan, tiedät varmasti, että se allokoi muistia suorituksensa aikana.
+
+Esimerkki on Zig Standard Libraryn funktio `allocPrint()`. Tällä funktiolla voit kirjoittaa uuden merkkijonon muotoilumääreitä käyttäen. Funktio on siis hyvin samankaltainen kuin C:n `sprintf()`.
+Uuden merkkijonon kirjoittamiseksi `allocPrint()`-funktion täytyy allokoida muistia tulosmerkkijonon tallentamiseen.
+
+Siksi funktion ensimmäinen argumentti on allokaattoriolio, jonka sinä, käyttäjä/ohjelmoija, annat funktiolle syötteenä. Alla olevassa esimerkissä käytän allokaattorina `DebugAllocator()`-oliota, mutta voisin yhtä hyvin käyttää mitä tahansa muuta Zig Standard Libraryn allokaattoria.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+var gpa = std.heap.DebugAllocator(.{}){};
+const allocator = gpa.allocator();
+const name = "Pedro";
+const output = try std.fmt.allocPrint(
+    allocator,
+    "Hello {s}!!!",
+    .{name}
+);
+try stdout.print("{s}\n", .{output});
+try stdout.flush();
+```
+
+
+Saat paljon hallintaa siihen, mihin ja kuinka paljon tämä funktio voi allokoida muistia.
+Koska sinä, käyttäjä/ohjelmoija, tarjoat allokaattorin funktion käyttöön.
+Tämä tekee "täydellisestä hallinnasta" muistinhallinnassa helpompaa Zigissä.
+
+### Mitä allokaattorit ovat?
+
+Allokaattorit Zigissä ovat olioita, joita voit käyttää muistin allokointiin ohjelmallesi.
+Ne muistuttavat C:n muistinallokointifunktioita, kuten `malloc()` ja `calloc()`.
+Jos tarvitset enemmän muistia kuin aluksi on, ohjelmasi suorituksen aikana, voit yksinkertaisesti pyytää lisää muistia allokaattorioliolla.
+
+Zig tarjoaa erilaisia allokaattoreita, ja ne ovat yleensä saatavilla standardikirjaston moduulissa `std.heap`. Tuo Zig Standard Library Zig-moduuliisi (`@import("std")`), ja voit alkaa käyttää näitä allokaattoreita koodissasi.
+
+Lisäksi jokainen allokaattoriolio perustuu Zigin `Allocator`-rajapintaan.
+Tämä tarkoittaa, että jokaisella Zigin allokaattorioliolla täytyy olla metodit `alloc()`, `create()`, `free()` ja `destroy()`. Voit siis vaihtaa käyttämäsi allokaattorin tyyppiä ilman, että sinun tarvitsee muuttaa muistin allokointiin (ja vapauttamiseen) liittyviä metodikutsuja.
+
+### Miksi tarvitset allokaattorin?
+
+Kuten @sec-stack kuvaa, joka kerta kun teet funktiokutsun Zigissä, pinosta varataan tila kyseiselle funktiokutsulle. Pinolla on kuitenkin keskeinen rajoitus: jokaisella pinossa olevalla oliolla on tunnettu kiinteä pituus.
+
+Todellisuudessa on kuitenkin kaksi hyvin yleistä tilannetta, joissa pinon "kiinteän pituuden rajoitus" on este:
+
+1. funktiossasi luomat oliot voivat kasvaa kooltaan funktion suorituksen aikana.
+1. joskus on mahdotonta tietää etukäteen, kuinka monta syötettä saat tai kuinka suuri syöte on.
+
+On myös tilanne, jossa saatat haluta käyttää allokaattoria: kun haluat kirjoittaa funktion, joka palauttaa osoittimen paikalliseen olioon. Kuten @sec-stack kuvasin, et voi tehdä sitä, jos paikallinen olio on pinossa. Jos olio on kuitenkin keossa, voit palauttaa osoittimen siihen funktion lopussa, koska sinä (ohjelmoijana) hallitset allokoimasi kekomuistin elinkaaren. Sinä päätät, milloin muisti tuhotaan/vapautetaan.
+
+Nämä ovat yleisiä tilanteita, joissa pino ei kelpaa.
+Siksi tarvitset erilaisen muistinhallintastrategian näiden olioiden tallentamiseen funktiossasi. Tarvitset muistityypin, joka voi kasvaa olioidesi mukana tai jonka elinkaarta voit hallita.
+Keko sopii tähän kuvaukseen.
+
+Muistin allokointi kekoon tunnetaan yleisesti dynaamisena muistinhallintana. Kun luomasi oliot kasvavat kooltaan ohjelmasi suorituksen aikana, kasvatat muistin määrää allokoimalla lisää muistia kekoon. Zigissä teet sen allokaattorioliolla.
+
+
+### Eri allokaattorityypit
+
+
+Kirjan kirjoitushetkellä Zigin standardikirjastossa on kuusi eri allokaattoria:
+
+- `DebugAllocator()`.
+- `page_allocator()`.
+- `FixedBufferAllocator()` ja `ThreadSafeFixedBufferAllocator()`.
+- `ArenaAllocator()`.
+- `c_allocator()` (vaatii linkityksen libc:hen).
+
+
+Jokaisella allokaattorilla on omat etunsa ja rajoituksensa. Kaikki allokaattorit paitsi `FixedBufferAllocator()` ja `ArenaAllocator()` käyttävät kekomuistia.
+Kaikki näillä allokaattoreilla allokoimasi muisti sijoitetaan siis kekoon.
+
+### Yleiskäyttöiset allokaattorit
+
+`DebugAllocator()`, kuten nimestä voi päätellä, on "yleiskäyttöinen" allokaattori. Voit käyttää sitä mihin tahansa tehtävään. Alla olevassa esimerkissä allokoin tarpeeksi tilaa yhden kokonaisluvun tallentamiseen olioon `some_number`.
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+const std = @import("std");
+
+pub fn main() !void {
+    var gpa = std.heap.DebugAllocator(.{}){};
+    const allocator = gpa.allocator();
+    const some_number = try allocator.create(u32);
+    defer allocator.destroy(some_number);
+
+    some_number.* = @as(u32, 45);
+}
+```
+
+
+Vaikka hyödyllinen, saatat haluta käyttää `c_allocator()`-allokaattoria, joka on alias C:n standardiallokaattorille `malloc()`. Kyllä, voit käyttää `malloc()`-funktiota Zigissä halutessasi. Käytä vain Zigin standardikirjaston `c_allocator()`-allokaattoria. Jos käytät `c_allocator()`-allokaattoria, sinun täytyy kuitenkin linkittää Libc kääntäessäsi lähdekoodiasi `zig`-kääntäjällä sisällyttämällä käännösprosessiin lippu `-lc`.
+Jos et linkitä lähdekoodiasi Libciin, Zig ei löydä järjestelmästäsi `malloc()`-toteutusta.
+
+### Sivuallokaattori
+
+`page_allocator()` on allokaattori, joka allokoi kokonaisia muistisivuja kekoon. Toisin sanoen joka kerta kun allokoit muistia `page_allocator()`-allokaattorilla, kekoon allokoidaan kokonainen muistisivu pienen palan sijaan.
+
+Sivun koko riippuu käyttämästäsi järjestelmästä.
+Useimmissa järjestelmissä keon sivukoko on 4 kt, joten `page_allocator()` allokoi yleensä tämän verran muistia jokaisella kutsulla. Siksi `page_allocator()`-allokaattoria pidetään Zigissä nopeana mutta myös "tuhlailevana" allokaattorina, koska se allokoi paljon muistia jokaisella kutsulla, vaikka et todennäköisesti tarvitse niin paljon muistia ohjelmassasi.
+
+### Puskuriallokaattorit
+
+`FixedBufferAllocator()` ja `ThreadSafeFixedBufferAllocator()` ovat allokaattoriolioita, jotka toimivat kiinteäkokoisen puskuriolion kanssa. Ne käyttävät kiinteäkokoista puskurioa muistin perustana. Kun pyydät näitä allokaattoriolioita allokoimaan muistia, ne varaavat käytännössä tilaa tästä kiinteäkokoisesta puskurista.
+
+Tämä tarkoittaa, että näiden allokaattoreiden käyttöön sinun täytyy ensin luoda puskurio koodiisi ja antaa se sitten syötteenä näille allokaattoreille.
+
+Tämä tarkoittaa myös, että nämä allokaattorioliot voivat allokoida muistia joko pinosta tai keosta.
+Kaikki riippuu siitä, missä antamasi puskurio sijaitsee. Jos puskurio on pinossa, allokoitu muisti on "pinopohjaista". Jos se on keossa, allokoitu muisti on "kekopohjaista".
+
+
+Alla olevassa esimerkissä luon pinossa `buffer`-olion, joka on 10 alkiota pitkä.
+Huomaa, että annan tämän `buffer`-olion `FixedBufferAllocator()`-konstruktorille.
+Koska `buffer`-olio on 10 alkiota pitkä, olen rajoitettu tähän tilaan.
+En voi allokoida enempää kuin 10 alkiota tällä allokaattorioliolla. Jos yritän allokoida enemmän, `alloc()`-metodi palauttaa `OutOfMemory`-virhearvon.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+var buffer: [10]u8 = undefined;
+for (0..buffer.len) |i| {
+    buffer[i] = 0; // Initialize to zero
+}
+
+var fba = std.heap.FixedBufferAllocator.init(&buffer);
+const allocator = fba.allocator();
+const input = try allocator.alloc(u8, 5);
+defer allocator.free(input);
+```
+
+Muista, että näiden allokaattoriolioiden allokoima muisti voi olla joko pinosta tai keosta. Kaikki riippuu siitä, missä antamasi puskurio sijaitsee.
+Yllä olevassa esimerkissä `buffer`-olio on pinossa, joten allokoitu muisti perustuu pinoon. Entä jos se perustuisi kekoon?
+
+Kuten @sec-stack-overflow kuvasimme, yksi tärkeimmistä syistä käyttää kekoa pinon sijaan on allokoida valtavia määriä tilaa hyvin suurten olioiden tallentamiseen.
+Oletetaan siis, että haluat käyttää hyvin suurta puskurioa allokaattorioliesi perustana. Sinun täytyisi allokoida tämä hyvin suuri puskurio kekoon.
+Alla oleva esimerkki havainnollistaa tätä tapausta.
+
+```{zig}
+#| build_type: "ast"
+#| auto_main: true
+const heap = std.heap.page_allocator;
+const memory_buffer = try heap.alloc(
+    u8, 100 * 1024 * 1024 // 100 MB memory
+);
+defer heap.free(memory_buffer);
+var fba = std.heap.FixedBufferAllocator.init(
+    memory_buffer
+);
+const allocator = fba.allocator();
+
+const input = try allocator.alloc(u8, 1000);
+defer allocator.free(input);
+```
+
+
+
+### Arena-allokaattori {#sec-arena-allocator}
+
+`ArenaAllocator()` on allokaattoriolio, joka ottaa syötteenä lapsiallokaattorin. `ArenaAllocator()`-idean takana on sama kuin Go-ohjelmointikielen "areenoilla"[^go-arena]. Se on allokaattoriolio, joka antaa allokoida muistia niin monta kertaa kuin haluat, mutta vapauttaa kaiken muistin kerralla.
+Toisin sanoen, jos olet esimerkiksi kutsunut `ArenaAllocator()`-olion metodia `alloc()` viisi kertaa, voit vapauttaa kaiken näiden viiden kutsun aikana allokoimasi muistin kerralla kutsumalla saman `ArenaAllocator()`-olion metodia `deinit()`.
+
+[^go-arena]: <https://go.dev/src/arena/arena.go>
+
+Jos annat esimerkiksi `DebugAllocator()`-olion syötteenä `ArenaAllocator()`-konstruktorille, kuten alla olevassa esimerkissä, `alloc()`-kutsuilla tekemäsi allokoinnit tehdään itse asiassa annetulla `DebugAllocator()`-oliolla.
+Arena-allokaattorilla kaikki uusi muisti allokoidaan lapsiallokaattorilla. Arena-allokaattorin ainoa tehtävä on auttaa vapauttamaan kaikki useaan kertaan allokoitu muisti yhdellä komennolla. Alla olevassa esimerkissä kutsuin `alloc()`-metodia kolme kertaa. Ilman arena-allokaattoria minun pitäisi kutsua `free()` kolme kertaa vapauttaakseni kaiken allokoidun muistin.
+
+```{zig}
+#| auto_main: true
+#| build_type: "lib"
+var gpa = std.heap.DebugAllocator(.{}){};
+var aa = std.heap.ArenaAllocator.init(gpa.allocator());
+defer aa.deinit();
+const allocator = aa.allocator();
+
+const in1 = try allocator.alloc(u8, 5);
+const in2 = try allocator.alloc(u8, 10);
+const in3 = try allocator.alloc(u8, 15);
+_ = in1; _ = in2; _ = in3;
+```
+
+
+
+### `alloc()`- ja `free()`-metodit
+
+Alla olevassa koodiesimerkissä käytämme `stdin`-kanavaa, joka on standardisyöttökanava, vastaanottaaksemme käyttäjän syötteen. Luemme käyttäjän seuraavan syöterivin `takeDelimiterExclusive()`-metodilla.
+
+Käyttäjän syötteen lukemisen jälkeen meidän täytyy tallentaa syöte johonkin ohjelmassamme. Siksi käytän tässä esimerkissä allokaattoria. Käytän sitä allokoimaan muistia käyttäjän syötteen tallentamiseen. Tarkemmin sanottuna allokaattoriolion metodia `alloc()` käytetään allokoimaan taulukko, joka voi tallentaa 50 `u8`-arvoa.
+
+Huomaa, että `alloc()`-metodi saa kaksi syötettä. Ensimmäinen on tyyppi.
+Se määrittää, minkä tyyppisiä arvoja allokoitu taulukko tallentaa. Alla olevassa esimerkissä allokoimme etumerkittömien 8-bittisten kokonaislukujen (`u8`) taulukon.
+Voit kuitenkin luoda taulukon minkä tahansa tyyppisille arvoille. Toisessa argumentissa määrittelemme allokoidun taulukon koon määrittämällä, kuinka monta alkiota taulukko sisältää. Alla olevassa tapauksessa allokoimme 50 alkion taulukon.
+
+@sec-zig-strings kuvasimme, että merkkijonot Zigissä ovat yksinkertaisesti merkkitaulukoita.
+Jokainen merkki esitetään `u8`-arvolla[^charn]. Tämä tarkoittaa, että olioon `input` allokoitu taulukko voi tallentaa 50 merkin pituisen merkkijonon.
+
+[^charn]: Muista, että tämä on yksinkertaistus. Jos puhumme vain ASCII-merkkijonoista, jokainen `u8`-arvo edustaa erillistä merkkiä merkkijonossa. Mutta UTF-8-koodatuissa merkkijonoissa tilanne ei aina ole näin.
+
+Pohjimmiltaan lauseke `var input: [50]u8 = undefined` loisi 50 `u8`-arvon taulukon nykyisen laajuuden pinoon. Voit kuitenkin allokoida saman taulukon kekoon lausekkeella `var input = try allocator.alloc(u8, 50)`.
+
+```{zig}
+#| auto_main: false
+#| build_type: "lib"
+const std = @import("std");
+
+pub fn main(init: std.process.Init) !void {
+    var stdin_buffer: [1024]u8 = undefined;
+    var stdin_reader = std.Io.File.stdin().reader(init.io, &stdin_buffer);
+    const stdin = &stdin_reader.interface;
+
+    var gpa = std.heap.DebugAllocator(.{}){};
+    const allocator = gpa.allocator();
+
+    var input = try allocator.alloc(u8, 50);
+    defer allocator.free(input);
+    @memset(input[0..], 0);
+
+    // Read user input until a line break is found.
+    const stream = try stdin.takeDelimiterExclusive('\n');
+    // Store the input into our heap memory.
+    @memcpy(input[0..stream.len], stream[0..]);
+    // Print our heap memory, so that we can see what
+    // was stored in it.
+    std.debug.print("{s}\n", .{input});
+}
+```
+
+Huomaa myös, että tässä esimerkissä käytämme `defer`-avainsanaa (jonka kuvasin @sec-defer) suorittamaan pienen koodinpätkän nykyisen laajuuden lopussa, eli lausekkeen `allocator.free(input)`.
+Kun suoritat tämän lausekkeen, allokaattori vapauttaa `input`-oliolle allokoimansa muistin.
+
+Puhuimme tästä @sec-heap. Sinun **täytyy aina** vapauttaa eksplisiittisesti kaikki allokaattorilla allokoimasi muisti! Teet sen käyttämällä saman allokaattoriolion `free()`-metodia, jolla allokoit muistin. `defer`-avainsanaa käytetään tässä esimerkissä vain auttamaan vapautusoperaation suorittamisessa nykyisen laajuuden lopussa.
+
+
+### `create()`- ja `destroy()`-metodit
+
+`alloc()`- ja `free()`-metodeilla voit allokoida muistia useiden alkioiden tallentamiseen kerralla.
+Toisin sanoen näillä metodeilla allokoimme aina taulukon useiden alkioiden tallentamiseen.
+Mutta entä jos tarvitset tilaa vain yhdelle alkioelle? Pitäisikö sinun allokoida yhden alkion taulukko `alloc()`-metodilla?
+
+Vastaus on ei! Tässä tapauksessa sinun pitäisi käyttää allokaattoriolion metodia `create()`.
+Jokainen allokaattoriolio tarjoaa metodit `create()` ja `destroy()`, joita käytetään yhden alkion muistin allokointiin ja vapauttamiseen.
+
+Pohjimmiltaan, jos haluat allokoida muistia alkiotaulukon tallentamiseen, käytä `alloc()`- ja `free()`-metodeja. Jos tarvitset tilaa vain yhdelle alkioelle, `create()`- ja `destroy()`-metodit ovat ihanteelliset.
+
+Alla olevassa esimerkissä määrittelen structin, joka edustaa jonkinlaista käyttäjää.
+Se voi olla pelin käyttäjä tai resurssienhallintaohjelmiston käyttäjä, sillä ei ole väliä.
+Huomaa, että käytän tällä kertaa `create()`-metodia yhden `User`-olion tallentamiseen ohjelmaan. Huomaa myös, että käytän `destroy()`-metodia vapauttamaan tämän olion käyttämän muistin laajuuden lopussa.
+
+```{zig}
+#| auto_main: false
+#| build_type: "run"
+const std = @import("std");
+const User = struct {
+    id: usize,
+    name: []const u8,
+
+    pub fn init(id: usize, name: []const u8) User {
+        return .{ .id = id, .name = name };
+    }
+};
+
+pub fn main() !void {
+    var gpa = std.heap.DebugAllocator(.{}){};
+    const allocator = gpa.allocator();
+    const user = try allocator.create(User);
+    defer allocator.destroy(user);
+
+    user.* = User.init(0, "Pedro");
+}
+```
