@@ -1,0 +1,179 @@
+---
+translation:
+  source: Chapters/15-vectors.qmd
+  source_sha256: b26a604c16130ef5eaa6e37c3d74e2c3768cc4a237ab40552cffb23fb078717f
+  status: complete
+---
+
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+---
+
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+
+# Johdatus vektoreihin ja SIMD:hen {#sec-vectors-simd}
+
+Tässä luvussa käsittelen vektoreita Zigissä. Ne liittyvät SIMD-operaatioihin
+(eli niillä ei ole mitään tekemistä C++:n `std::vector`-luokan kanssa).
+
+## Mitä SIMD on?
+
+SIMD (*Single Instruction/Multiple Data*) on joukko operaatioita, joita käytetään laajasti
+video- ja äänimuokkausohjelmissa sekä grafiikkasovelluksissa. SIMD ei ole uusi teknologia,
+mutta SIMD:n laaja käyttö tavallisissa pöytätietokoneissa on suhteellisen tuore ilmiö. Ennen vanhaan SIMD:ä
+käytettiin vain ”supertietokonemalleissa”.
+
+Useimmilla nykyaikaisilla suorittinmalleilla (AMD, Intel jne.) on tänä päivänä tuki SIMD-operaatioille
+sekä pöytäkoneissa että kannettavissa. Jos tietokoneessasi on hyvin vanha suoritinmalli,
+on mahdollista, ettei koneellasi ole SIMD-tukea.
+
+Miksi ihmiset ovat alkaneet käyttää SIMD:ä ohjelmistossaan? Vastaus on suorituskyky.
+Mutta mitä SIMD tarkalleen ottaen tekee paremman suorituskyvyn saavuttamiseksi? Ytimekkäästi ottaen SIMD-operaatiot ovat erilainen
+strategia rinnakkaislaskennan toteuttamiseen ohjelmassa ja siten laskelmien nopeuttamiseen.
+
+SIMD:n perusajatus on, että yksi käsky käsittelee useaa dataa
+samaan aikaan. Kun suoritat tavallisen skalaarioperaation, esimerkiksi neljä yhteenlaskukäskyä,
+jokainen lasku suoritetaan erikseen, yksi kerrallaan. SIMD:n avulla nämä neljä yhteenlaskukäskyä
+muunnetaan yhdeksi käskyksi, ja seurauksena neljä yhteenlaskua suoritetaan
+rinnakkain, samaan aikaan.
+
+Tällä hetkellä `zig`-kääntäjä sallii seuraavien operaattoriryhmien käytön vektoriobjekteille.
+Kun käytät jotakin näistä operaattoreista vektoriobjekteille, laskelmissa hyödynnetään SIMD:ä, ja
+siksi nämä operaattorit sovelletaan oletuksena elementtikohtaisesti ja rinnakkain.
+
+- Aritmeettiset (`+`, `-`, `/`, `*`, `@divFloor()`, `@sqrt()`,  `@ceil()`, `@log()` jne.).
+- Bittioperaattorit (`>>`, `<<`, `&`, `|`, `~` jne.).
+- Vertailuoperaattorit (`<`, `>`, `==` jne.).
+
+
+## Vektorit {#sec-what-vectors}
+
+SIMD-operaatio suoritetaan yleensä *SIMD-intrinsicin* kautta, mikä on vain hieno
+nimi funktiolle, joka suorittaa SIMD-operaation. Nämä SIMD-intrinsicit (tai ”SIMD-funktiot”)
+toimivat aina erityisen tyyppisten objektien kanssa, joita kutsutaan ”vektoreiksi”. Jotta
+voit käyttää SIMD:ä, sinun täytyy luoda ”vektoriobjekti”.
+
+Vektoriobjekti on yleensä kiinteäkokoinen 128-bittinen (16 tavun) lohko.
+Sen seurauksena useimmat käytännössä kohtaamasi vektorit ovat pohjimmiltaan taulukoita, joissa on 2 arvoa, kukin 8 tavua,
+tai 4 arvoa, kukin 4 tavua, tai 8 arvoa, kukin 2 tavua jne.
+Eri suoritinmallit voivat kuitenkin tarjota erilaisia SIMD-laajennuksia (tai ”toteutuksia”),
+jotka tarjoavat suurempia vektoriobjektityyppejä (256 tai 512 bittiä)
+siten, että yhteen vektoriobjektiin mahtuu enemmän dataa.
+
+Voit luoda uuden vektoriobjektin Zigissä käyttämällä sisäänrakennettua `@Vector()`-funktiota. Tässä funktiossa
+määrittelet vektorin pituuden (elementtien määrän vektorissa) ja vektorin elementtien
+tietotyypin. Näissä vektoriobjekteissa tuetaan vain primitiivisiä tietotyyppejä.
+Alla olevassa esimerkissä luon kaksi vektoriobjektia (`v1` ja `v2`), joissa kummassakin on 4 elementtiä tyyppiä `u32`.
+
+Huomaa myös alla olevassa esimerkissä, että kolmas vektoriobjekti (`v3`) luodaan kahden edellisen
+vektoriobjektin summasta (`v1` plus `v2`). Siksi matemaattiset operaatiot vektoriobjekteille
+suoritetaan oletuksena elementtikohtaisesti, koska
+sama operaatio (tässä tapauksessa yhteenlasku) muunnetaan yhdeksi käskyksi,
+joka toistetaan rinnakkain kaikkien vektorien elementtien yli.
+
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const v1 = @Vector(4, u32){4, 12, 37, 9};
+const v2 = @Vector(4, u32){10, 22, 5, 12};
+const v3 = v1 + v2;
+try stdout.print("{any}\n", .{v3});
+try stdout.flush();
+```
+
+Näin SIMD tuo ohjelmaasi lisää suorituskykyä. Sen sijaan, että käyttäisimme for-silmukkaa
+käydäksemme läpi `v1`:n ja `v2`:n elementit ja laskettaisiin ne yhteen yksi kerrallaan,
+hyödynnämme SIMD:n etuja, jotka suorittavat kaikki neljä yhteenlaskua rinnakkain, samaan aikaan.
+
+Siten `@Vector`-rakenne on pohjimmiltaan Zigin esitys SIMD-vektoriobjekteista.
+Näiden vektoriobjektien elementtejä käsitellään rinnakkain vain, jos nykyinen suoritinmallisi
+tukee SIMD-operaatioita. Jos suoritinmallissasi ei ole SIMD-tukea, `@Vector`-rakenne tuottaa
+todennäköisesti samanlaisen suorituskyvyn kuin ”for-silmukkaratkaisu”.
+
+
+### Taulukoiden muuntaminen vektoreiksi
+
+Tavallisen taulukon muuntamiseen vektoriobjektiksi on eri tapoja.
+Voit käyttää joko implisiittistä muunnosta (kun määrität taulukon suoraan
+vektoriobjektille) tai lohkoja vektoriobjektin luomiseksi tavallisesta taulukosta.
+
+Alla olevassa esimerkissä muunnamme implisiittisesti taulukon `a1` vektoriobjektiksi (`v1`),
+jonka pituus on 4. Ensin annotoimme eksplisiittisesti vektoriobjektin tietotyypin
+ja määritämme sitten taulukko-objektin tälle vektoriobjektille.
+
+Huomaa myös alla olevassa esimerkissä, että toinen vektoriobjekti (`v2`) luodaan
+ottamalla lohko taulukko-objektista (`a1`) ja tallentamalla tämän lohkon osoitin (`.*`)
+tähän vektoriobjektiin.
+
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const a1 = [4]u32{4, 12, 37, 9};
+const v1: @Vector(4, u32) = a1;
+const v2: @Vector(2, u32) = a1[1..3].*;
+_ = v1; _ = v2;
+```
+
+
+On syytä korostaa, että vain taulukot ja lohkot, joiden koko on tiedossa käännösaikana,
+voidaan muuntaa vektoreiksi. Vektorit yleensä ovat rakenteita, jotka toimivat vain
+käännösaikana tiedossa olevilla kooilla. Siksi, jos sinulla on taulukko, jonka koko on tiedossa ajonaikana,
+sinun täytyy ensin kopioida se taulukkoon, jonka koko on tiedossa käännösaikana, ennen kuin muunnat sen vektoriksi.
+
+
+
+### `@splat()`-funktio
+
+Voit käyttää sisäänrakennettua `@splat()`-funktiota luodaksesi vektoriobjektin, joka on täytetty
+samalla arvolla kaikissa elementeissään. Tämä funktio tarjoaa nopean
+ja helpon tavan muuntaa skalaariarvo (eli yksittäinen arvo, kuten yksi merkki tai yksi kokonaisluku jne.)
+suoraan vektoriobjektiksi.
+
+Voimme siis käyttää `@splat()`-funktiota muuntamaan yksittäisen arvon, kuten kokonaisluvun `16`, vektoriobjektiksi,
+jonka pituus on 1. Voimme myös käyttää tätä funktiota muuntamaan saman kokonaisluvun `16` vektoriobjektiksi,
+jonka pituus on 10 ja joka on täytetty kymmenellä `16`-arvolla. Alla oleva esimerkki havainnollistaa
+tätä ajatusta.
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+const v1: @Vector(10, u32) = @splat(16);
+try stdout.print("{any}\n", .{v1});
+try stdout.flush();
+```
+
+
+
+### Varo liian suuria vektoreita
+
+Kuten kuvasin kohdassa @sec-what-vectors, jokainen vektoriobjekti on yleensä pieni 128-, 256- tai 512-bittinen lohko.
+Tämä tarkoittaa, että vektoriobjekti on yleensä pienikokoinen, ja kun yrität mennä vastakkaiseen suuntaan
+luomalla hyvin suuren vektoriobjektin (eli kokoja, jotka ovat lähellä $2^{20}$),
+päädyt yleensä kaatumisiin ja kääntäjän voimakkaisiin virheilmoituksiin.
+
+Esimerkiksi jos yrität kääntää alla olevan ohjelman, kohtaat todennäköisesti segmentation fault -virheen tai LLVM-virheitä
+käännösprosessin aikana. Ole varovainen äläkä luo liian suuria vektoriobjekteja.
+
+```{zig}
+#| eval: false
+const v1: @Vector(1000000, u32) = @splat(16);
+_ = v1;
+```
+
+```
+Segmentation fault (core dumped)
+```
