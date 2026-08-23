@@ -24,8 +24,16 @@ jobs:
         with:
           use-public-rspm: true
 
-      - name: Install R packages
-        run: Rscript dependencies.R
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::readr
+            any::knitr
+            any::rmarkdown
+            any::stringr
+            any::gt
+            any::tibble
+          needs: check
 
       - uses: quarto-dev/quarto-actions/setup@v2
 
