@@ -1,13 +1,11 @@
 ---
+engine: knitr
+knitr: true
+syntax-definition: "../Assets/zig.xml"
 translation:
   source: index.qmd
   source_sha256: 68ae1fb807788810d646ac50dbf4e6028b497712e81fd27efbe9a9e560490708
   status: complete
----
-
-engine: knitr
-knitr: true
-syntax-definition: "../Assets/zig.xml"
 ---
 
 ```{r}
@@ -36,9 +34,9 @@ joka on uusi yleiskäyttöinen matalan tason kieli vankkaan ja optimaaliseen ohj
 Jos pidät tästä projektista ja haluat tukea sitä, voit ostaa kirjan PDF-, e-kirja- tai painetun version
 joko Amazonista tai Leanpubista:
 
-{{< include ../Assets/button.html >}}
+{{< include ./Assets/button.html >}}
 
-{{< include ../Assets/leanpub-button.html >}}
+{{< include ./Assets/leanpub-button.html >}}
 
 
 ### Lahjoitukset suoraan
@@ -53,7 +51,7 @@ ja mahdollistaa tekijän jatkuvan työn hyödyllisten työkalujen ja materiaalie
 
 ### PayPal
 
-{{< include ../Assets/paypal-button.html >}}
+{{< include ./Assets/paypal-button.html >}}
 
 ### Revolut
 
@@ -69,7 +67,7 @@ Corresponding BIC: CHASGB2L
 
 Jos sinulla on Revolut-tili, voit skannata seuraavan QR-koodin:
 
-{{< include ../Assets/revolut-button.html >}}
+{{< include ./Assets/revolut-button.html >}}
 
 :::
 ::::

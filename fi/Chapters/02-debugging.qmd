@@ -1,13 +1,11 @@
 ---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
 translation:
   source: Chapters/02-debugging.qmd
   source_sha256: 37f5dc43fce99252ca3f2f8ee02bdebb52df75810cf14e2d3cf84bc9ff42076a
   status: complete
----
-
-engine: knitr
-knitr: true
-syntax-definition: "../../Assets/zig.xml"
 ---
 
 ```{r}

@@ -1,13 +1,11 @@
 ---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
 translation:
   source: Chapters/13-image-filter.qmd
   source_sha256: 16d60fa097d1f7241849c2593132164a467d043e93f3a24820231b418a585924
   status: complete
----
-
-engine: knitr
-knitr: true
-syntax-definition: "../../Assets/zig.xml"
 ---
 
 ```{r}

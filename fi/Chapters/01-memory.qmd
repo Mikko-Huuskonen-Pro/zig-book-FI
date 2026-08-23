@@ -1,13 +1,11 @@
 ---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
 translation:
   source: Chapters/01-memory.qmd
   source_sha256: 18d7c674e1528ad2c6a95087472312c69a4729acb8be572990932433199bb510
   status: complete
----
-
-engine: knitr
-knitr: true
-syntax-definition: "../../Assets/zig.xml"
 ---
 
 

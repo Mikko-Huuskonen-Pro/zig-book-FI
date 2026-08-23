@@ -1,13 +1,11 @@
 ---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
 translation:
   source: Chapters/15-vectors.qmd
   source_sha256: b26a604c16130ef5eaa6e37c3d74e2c3768cc4a237ab40552cffb23fb078717f
   status: complete
----
-
-engine: knitr
-knitr: true
-syntax-definition: "../../Assets/zig.xml"
 ---
 
 

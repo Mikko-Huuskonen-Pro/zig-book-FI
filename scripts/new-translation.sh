@@ -25,23 +25,36 @@ fi
 mkdir -p "$(dirname "$FI")"
 EN_HASH="$(sha256sum "$EN" | awk '{print $1}')"
 
-# Kopioi pohja ja lisää käännösmetatiedot YAML-osion alkuun.
+# Kopioi pohja, säilytä yksi YAML-frontmatter ja lisää translation-kentät.
 {
-  echo "---"
-  echo "translation:"
-  echo "  source: $REL"
-  echo "  source_sha256: $EN_HASH"
-  echo "  status: draft"
-  echo "---"
-  echo ""
   tail -n +2 "$EN" | sed \
     -e 's|source("\./zig_engine.R")|source("../zig_engine.R")|g' \
     -e 's|source("\.\./zig_engine.R")|source("../../zig_engine.R")|g' \
     -e 's|syntax-definition: "\./Assets/|syntax-definition: "../Assets/|g' \
     -e 's|syntax-definition: "\.\./Assets/|syntax-definition: "../../Assets/|g' \
-    -e 's|include \./Assets/|include ../Assets/|g' \
-    -e 's|include \.\./Assets/|include ../../Assets/|g'
-} > "$FI"
+    -e 's|include \./Assets/|include ./Assets/|g' \
+    -e 's|include \.\./Assets/|include ./Assets/|g'
+} > "$FI.tmp"
+
+# Lisää translation YAML-osion olemassa olevaan frontmatteriin.
+python3 - "$FI.tmp" "$REL" "$EN_HASH" "$FI" <<'PY'
+import sys, re, pathlib
+
+tmp, rel, en_hash, out = sys.argv[1:5]
+text = pathlib.Path(tmp).read_text(encoding='utf-8')
+m = re.match(r'^---\n(.*?)\n---\n', text, re.S)
+if not m:
+    raise SystemExit('Ei YAML-frontmatteria lähdetiedostossa')
+header, body = m.group(1), text[m.end():]
+extra = (
+    f"translation:\n"
+    f"  source: {rel}\n"
+    f"  source_sha256: {en_hash}\n"
+    f"  status: draft\n"
+)
+pathlib.Path(out).write_text(f"---\n{header}\n{extra}---\n{body}", encoding='utf-8', newline='\n')
+pathlib.Path(tmp).unlink()
+PY
 
 echo "Luotu: $FI"
 echo "Päivitä käännös ja aseta status: complete kun valmis."

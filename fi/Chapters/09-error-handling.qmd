@@ -1,13 +1,11 @@
 ---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
 translation:
   source: Chapters/09-error-handling.qmd
   source_sha256: 11332802923c077dfef8d05abd5ff37f606b21c9d1d4f583b6391d3ccd14ba11
   status: complete
----
-
-engine: knitr
-knitr: true
-syntax-definition: "../../Assets/zig.xml"
 ---
 
 ```{r}

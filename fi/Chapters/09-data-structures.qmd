@@ -1,13 +1,11 @@
 ---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
 translation:
   source: Chapters/09-data-structures.qmd
   source_sha256: 0eb2543a8239480860c6d7f94df9717222d24b51d6091a3a9547e3c563382507
   status: complete
----
-
-engine: knitr
-knitr: true
-syntax-definition: "../../Assets/zig.xml"
 ---
 
 ```{r}

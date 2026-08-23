@@ -1,13 +1,11 @@
 ---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
 translation:
   source: Chapters/04-http-server.qmd
   source_sha256: b8097144568a1e726b48c57755fef97e35ff23a7f6be95f9830d9c4b30db9f2c
   status: complete
----
-
-engine: knitr
-knitr: true
-syntax-definition: "../../Assets/zig.xml"
 ---
 
 ```{r}
@@ -445,7 +443,7 @@ suoritetaan lopulta luomaan
 tarvitsemamme yhteysobjektin ja loput ohjelmasta
 juoksee.
 
-Voit nähdä sen @fig-print-zigrun1:ssä. Viesti `Server Addr: 127.0.0.1:3490`
+Voit nähdä sen @fig-print-zigrun1. Viesti `Server Addr: 127.0.0.1:3490`
 tulostetaan konsoliin, ja ohjelma odottaa nyt saapuvaa yhteyttä.
 
 ![Kuvakaappaus ohjelman suorittamisesta](./../Figures/print-zigrun1.png){#fig-print-zigrun1}

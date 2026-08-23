@@ -1,13 +1,11 @@
 ---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
 translation:
   source: Chapters/07-build-system.qmd
   source_sha256: 3d2bb1f1f594144df18c6cd9d8bf5580d7a0a18a3010d24b5575cd66e0495ae1
   status: complete
----
-
-engine: knitr
-knitr: true
-syntax-definition: "../../Assets/zig.xml"
 ---
 
 ```{r}
@@ -153,7 +151,7 @@ Zig Build Systemin virallisessa dokumentaatiossa on [hyvä koodiesimerkki, joka 
 
 
 Kohdeobjekti luodaan seuraavilla menetelmillä käyttöönottamamme `Build`-rakenteessa
-@sec-build-fun:
+@sec-build-fun
 
 - `addExecutable()` luo suoritettavan tiedoston;
 - `addSharedLibrary()` luo jaetun kirjastotiedoston;

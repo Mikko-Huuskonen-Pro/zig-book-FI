@@ -1,13 +1,11 @@
 ---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
 translation:
   source: Chapters/01-zig-weird.qmd
   source_sha256: dd94f951ea5f2107d619ce52993662ab242aa957082fedd81f3038b89758052c
   status: complete
----
-
-engine: knitr
-knitr: true
-syntax-definition: "../../Assets/zig.xml"
 ---
 
 

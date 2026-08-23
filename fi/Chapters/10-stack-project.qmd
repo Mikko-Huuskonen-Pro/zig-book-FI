@@ -1,13 +1,11 @@
 ---
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
 translation:
   source: Chapters/10-stack-project.qmd
   source_sha256: 6ede476ddca6c23022a31edbd0e5cc7ae84a272bcdb16c3ca4a4a83bb96dbca5
   status: complete
----
-
-engine: knitr
-knitr: true
-syntax-definition: "../../Assets/zig.xml"
 ---
 
 
