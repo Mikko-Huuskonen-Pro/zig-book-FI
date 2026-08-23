@@ -1,0 +1,1104 @@
+---
+translation:
+  source: Chapters/09-data-structures.qmd
+  source_sha256: 0eb2543a8239480860c6d7f94df9717222d24b51d6091a3a9547e3c563382507
+  status: complete
+---
+
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+---
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+
+# Tietorakenteet
+
+Tässä luvussa haluan esitellä yleisimmät tietorakenteet, jotka ovat saatavilla Zigin
+standardikirjastosta, erityisesti `ArrayList`- ja `HashMap`-rakenteet. Nämä ovat geneerisiä tietorakenteita,
+joita voit käyttää tallentamaan ja hallitsemaan mitä tahansa sovelluksesi tuottamaa dataa.
+
+## Dynaamiset taulukot {#sec-dynamic-array}
+
+Korkean tason kielissä taulukot ovat yleensä dynaamisia. Ne voivat helposti kasvaa
+koossa tarvittaessa, eikä sinun tarvitse huolehtia siitä.
+Sitä vastoin matalan tason kielissä taulukot ovat yleensä oletuksena staattisia.
+Tämä on C:n, C++:n, Rustin ja myös Zigin todellisuus. Staattiset taulukot esiteltiin
+@sec-arrays, mutta tässä osiossa käsittelemme dynaamisia taulukoita Zigissä.
+
+Dynaamiset taulukot ovat yksinkertaisesti taulukoita, jotka voivat kasvaa koossa ohjelmasi
+ajonaikana. Useimmilla matalan tason kielillä on jonkinlainen toteutus
+dynaamisesta taulukosta standardikirjastossaan. C++:lla on `std::vector`, Rustilla on `Vec`,
+ja Zigillä on `std.ArrayList`.
+
+`std.ArrayList`-struct tarjoaa sinulle yhtenäisen ja kasvavan taulukon.
+Se toimii kuten mikä tahansa muu dynaaminen taulukko: se varaa yhtenäisen muistilohkon, ja kun tässä lohkossa ei ole tilaa jäljellä,
+`ArrayList` varaa toisen yhtenäisen ja suuremman muistilohkon, kopioi
+elementit tähän uuteen sijaintiin ja poistaa (tai vapauttaa) edellisen muistilohkon.
+
+
+### Kapasiteetti vs. pituus
+
+Kun puhumme dynaamisista taulukoista, meillä on yleensä kaksi samankaltaista käsitettä,
+jotka ovat hyvin olennaisia sille, miten dynaaminen taulukko toimii konepellin alla.
+Nämä käsitteet ovat *kapasiteetti* ja *pituus*. Joissakin yhteyksissä, erityisesti
+C++:ssa, *pituutta* kutsutaan myös *kooksi*.
+
+Vaikka ne näyttävät samankaltaisilta, nämä käsitteet edustavat eri asioita
+dynaamisen taulukon kontekstissa. *Kapasiteetti* on niiden kohteiden (tai elementtien) määrä,
+jonka dynaaminen taulukkosi voi tällä hetkellä pitää ilman, että sinun täytyy varata lisää muistia.
+
+Sitä vastoin *pituus* viittaa siihen, kuinka monta elementtiä taulukossa
+on tällä hetkellä käytössä, eli toisin sanoen, kuinka monelle elementille tässä taulukossa
+olet antanut arvon. Jokainen dynaaminen taulukko toimii
+varatun muistilohkon ympärillä, joka edustaa taulukkoa, jonka kokonaiskapasiteetti on $n$ elementille.
+Kuitenkin vain osa näistä $n$ elementistä on käytössä suurimman osan ajasta. Tämä osa
+$n$:stä on taulukon *pituus*. Joten joka kerta kun lisäät uuden arvon
+taulukkoon, kasvatat sen *pituutta* yhdellä.
+
+Tämä tarkoittaa, että dynaaminen taulukko toimii yleensä ylimääräisellä marginaalilla tai ylimääräisellä tilalla,
+joka on tällä hetkellä tyhjä, mutta odottaa ja on valmis käytettäväksi. Tämä "ylimääräinen tila"
+on pohjimmiltaan ero *kapasiteetin* ja *pituuden* välillä. *Kapasiteetti* edustaa
+elementtien kokonaismäärää, jonka taulukko voi pitää ilman uudelleenallokointia
+tai uudelleenlaajentamista, kun taas *pituus* edustaa, kuinka suuri osa tästä kapasiteetista
+on tällä hetkellä käytössä arvojen tallentamiseen.
+
+@fig-capacity-length esittää tämän ajatuksen visuaalisesti. Huomaa, että aluksi
+taulukon kapasiteetti on suurempi kuin taulukon pituus.
+Joten dynaamisella taulukolla on ylimääräistä tilaa, joka on tällä hetkellä tyhjä, mutta se
+on valmis vastaanottamaan tallennettavan arvon.
+
+![Ero kapasiteetin ja pituuden välillä dynaamisessa taulukossa](./../Figures/dynamic-array.png){#fig-capacity-length}
+
+Näemme myös @fig-capacity-length, että kun *pituus* ja *kapasiteetti* ovat yhtä suuret, taulukolla ei ole tilaa jäljellä.
+Olemme saavuttaneet kapasiteettimme katon, ja siksi, jos haluamme tallentaa lisää arvoja
+tähän taulukkoon, meidän täytyy laajentaa sitä. Tarvitsemme suuremman tilan, joka voi pitää enemmän arvoja
+kuin mitä meillä tällä hetkellä on.
+
+Dynaaminen taulukko toimii laajentamalla taustalla olevaa taulukkoa aina, kun *pituus* muuttuu yhtä suureksi kuin
+taulukon *kapasiteetti*. Se varaa pohjimmiltaan uuden yhtenäisen muistilohkon, joka on suurempi
+kuin edellinen, kopioi sitten kaikki tällä hetkellä tallennetut arvot tähän uuteen
+sijaintiin (eli tähän uuteen muistilohkoon), ja vapauttaa edellisen muistilohkon.
+Tämän prosessin lopussa uudella taustataulukolla on suurempi *kapasiteetti*, ja siksi
+*pituus* muuttuu jälleen pienemmäksi kuin taulukon *kapasiteetti*.
+
+Tämä on dynaamisen taulukon sykli. Huomaa, että koko tämän syklin ajan *kapasiteetti* on aina
+joko yhtä suuri tai suurempi kuin taulukon *pituus*. Jos sinulla on `ArrayList`-olio (oletetaan,
+että nimesit sen `buffer`), voit tarkistaa taulukon nykyisen kapasiteetin käyttämällä `capacity`-attribuuttia
+`ArrayList`-oliostasi, kun taas sen nykyinen *pituus* on saatavilla `items.len`-attribuutissa.
+
+
+```{zig}
+#| eval: false
+// Check capacity
+buffer.capacity;
+// Check length
+buffer.items.len;
+```
+
+
+### `ArrayList`-olion luominen
+
+Käyttääksesi `ArrayList`-rakennetta, sinun täytyy antaa sille allokaattoriolio.
+Muista, Zigissä ei ole oletusmuistinallokaattoria. Ja kuten kuvasin @sec-allocators, kaikki muistin
+allokoinnit on tehtävä määrittelemälläsi allokaattorioliolla, johon
+sinulla on kontrolli. Esimerkissämme käytän
+yleiskäyttöistä allokaattoria, mutta voit käyttää mitä tahansa muuta
+haluamaasi allokaattoria.
+
+Kun alustat `ArrayList`-olion, sinun täytyy antaa taulukon elementtien datatyyppi.
+Toisin sanoen tämä määrittelee datatyypin, jota tämä taulukko (tai säilö)
+tallentaa. Siksi jos annan sille tyypin `u8`, luon dynaamisen
+taulukon `u8`-arvoille. Jos sen sijaan annan määrittelemäni structin, kuten structin `User`
+@sec-structs-and-oop, luodaan dynaaminen taulukko `User`-arvoille.
+Alla olevassa esimerkissä lausekkeella `ArrayList(u8)` luomme
+dynaamisen taulukon `u8`-arvoille.
+
+Kun olet antanut taulukon elementtien datatyypin, voit alustaa
+`ArrayList`-olion joko `init()`- tai `initCapacity()`-metodilla.
+Ensimmäinen metodi vastaanottaa vain allokaattoriolion
+syötteenä, kun taas jälkimmäinen metodi vastaanottaa sekä allokaattoriolion että kapasiteettiluvun syötteinä.
+Jälkimmäisellä metodilla et ainoastaan alusta structia, vaan asetat myös
+varatun taulukon aloituskapasiteetin.
+
+`initCapacity()`-metodin käyttö on suositeltu tapa alustaa dynaaminen taulukkosi.
+Koska uudelleenallokoinnit, eli toisin sanoen taulukon kapasiteetin laajentamisprosessi,
+on aina kallis operaatio. Sinun tulisi hyödyntää jokaista mahdollista tilaisuutta välttääksesi uudelleenallokoinnit
+taulukossasi. Jos tiedät, kuinka paljon tilaa taulukkosi tarvitsee alussa,
+sinun tulisi aina käyttää `initCapacity()`-metodia dynaamisen taulukkosi luomiseen.
+
+
+```{zig}
+#| auto_main: true
+#| build_type: "run"
+var gpa = std.heap.DebugAllocator(.{}){};
+const allocator = gpa.allocator();
+var buffer = try std.ArrayList(u8)
+    .initCapacity(allocator, 100);
+defer buffer.deinit(allocator);
+```
+
+
+Yllä olevassa esimerkissä `buffer`-olio alkaa 100 elementin taulukkona. Jos tämä
+`buffer`-olio tarvitsee luoda lisää tilaa elementtien mahtumiseen ohjelmasi ajonaikana, `ArrayList`-rakenne
+suorittaa tarvittavat toimenpiteet automaattisesti puolestasi.
+Huomaa myös `deinit()`-metodin käyttö `buffer`-olion tuhoamiseen
+nykyisen laajuuden lopussa vapauttamalla kaikki muisti, joka varattiin tässä `buffer`-oliossa
+tallennetulle dynaamiselle taulukolle.
+
+
+### Uusien elementtien lisääminen taulukkoon
+
+Nyt kun olemme luoneet dynaamisen taulukkomme, voimme alkaa käyttää sitä. Voit lisätä (eli "append")
+uusia arvoja tähän taulukkoon käyttämällä `append()`-metodia. Tämä metodi toimii samalla tavalla
+kuin Python-listan `append()`-metodi tai C++:n `std::vector`-luokan `emplace_back()`-metodi.
+Annat tälle metodille yhden arvon, ja metodi lisää tämän arvon taulukkoon.
+
+Voit myös käyttää `appendSlice()`-metodia lisätäksesi useita arvoja kerralla. Annat
+tälle metodille viipaleen (viipaleet kuvattiin @sec-arrays), ja metodi lisää kaikki tässä viipaleessa olevat arvot
+dynaamiseen taulukkoosi.
+
+```{zig}
+#| eval: false
+try buffer.append(allocator, 'H');
+try buffer.append(allocator, 'e');
+try buffer.append(allocator, 'l');
+try buffer.append(allocator, 'l');
+try buffer.append(allocator, 'o');
+try buffer.appendSlice(allocator, " World!");
+```
+
+### Elementtien poistaminen taulukosta {#sec-dynamic-array-remove}
+
+Voit käyttää `pop()`-metodia "poppaamaan" tai poistamaan
+taulukon viimeisen elementin. On syytä huomata, että tämä metodi
+ei muuta taulukon kapasiteettia. Se vain poistaa tai pyyhkii
+taulukkoon tallennetun viimeisen arvon.
+
+Lisäksi tämä metodi palauttaa tuloksena poistetun arvon. Eli voit
+käyttää tätä metodia sekä saadaksesi taulukon viimeisen arvon että poistaaksesi
+sen taulukosta. Se on "hae ja poista arvo" -tyyppinen metodi.
+
+```{zig}
+#| eval: false
+const exclamation_mark = buffer.pop();
+```
+
+Nyt, jos haluat poistaa tiettyjä elementtejä tietyistä sijainneista
+taulukossasi, voit käyttää `orderedRemove()`-metodia
+`ArrayList`-oliostasi. Tällä metodilla voit antaa indeksin syötteenä,
+ja metodi poistaa arvon, joka on tässä indeksissä taulukossa.
+Käytännössä pienennät taulukon *pituutta* joka kerta, kun suoritat
+`orderedRemove()`-operaation.
+
+Alla olevassa esimerkissä luomme ensin `ArrayList`-olion ja täytämme sen
+numeroilla. Sitten käytämme `orderedRemove()`-metodia poistaaksemme arvon
+indeksistä 3 taulukossa kaksi kertaa peräkkäin.
+
+Huomaa myös, että annamme `orderedRemove()`-metodin tuloksen
+alaviivalle. Joten hylkäämme tämän metodin palautusarvon.
+`orderedRemove()`-metodi palauttaa poistetun arvon samankaltaisella
+tavalla kuin `pop()`-metodi.
+
+
+```{zig}
+#| auto_main: true
+#| build_type: "lib"
+var gpa = std.heap.DebugAllocator(.{}){};
+const allocator = gpa.allocator();
+var buffer = try std.ArrayList(u8)
+    .initCapacity(allocator, 100);
+defer buffer.deinit(allocator);
+
+for (0..10) |i| {
+    const index: u8 = @intCast(i);
+    try buffer.append(allocator, index);
+}
+
+std.debug.print(
+    "{any}\n", .{buffer.items}
+);
+_ = buffer.orderedRemove(3);
+_ = buffer.orderedRemove(3);
+
+std.debug.print("{any}\n", .{buffer.items});
+std.debug.print("{any}\n", .{buffer.items.len});
+```
+
+```
+{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 }
+{ 0, 1, 2, 5, 6, 7, 8, 9 }
+8
+```
+
+Yksi keskeinen ominaisuus `orderedRemove()`-metodissa on, että se säilyttää arvojen järjestyksen
+taulukossa. Se poistaa pyytämäsi arvon,
+mutta varmistaa myös, että taulukkoon jääneiden arvojen järjestys
+pysyy samana kuin ennen.
+
+Nyt, jos et välitä arvojen järjestyksestä, esimerkiksi ehkä haluat käsitellä
+dynaamista taulukkoasi arvojen joukkona, kuten C++:n `std::unordered_set`-rakennetta,
+voit käyttää `swapRemove()`-metodia sen sijaan. Tämä metodi
+toimii samankaltaisesti kuin `orderedRemove()`-metodi. Annat tälle
+metodille indeksin, ja se poistaa arvon, joka on tässä indeksissä taulukossa.
+Mutta tämä metodi ei säilytä jäljellä olevien arvojen alkuperäistä järjestystä
+taulukossa. Seurauksena `swapRemove()` on yleensä nopeampi kuin `orderedRemove()`.
+
+
+### Elementtien lisääminen tiettyihin indekseihin
+
+Kun sinun täytyy lisätä arvoja taulukon keskelle
+sen sijaan, että lisäisit ne vain taulukon loppuun, sinun täytyy käyttää
+`insert()`- ja `insertSlice()`-metodeja
+`append()`- ja `appendSlice()`-metodien sijaan.
+
+Nämä kaksi metodia toimivat hyvin samankaltaisesti kuin C++:n `std::vector`-luokan `insert()`- ja `insert_range()`-metodit.
+Annat näille metodeille indeksin,
+ja ne lisäävät antamasi arvot kyseiseen indeksiin taulukossa.
+
+```{zig}
+#| auto_main: true
+#| build_type: "lib"
+#| eval: true
+var gpa = std.heap.DebugAllocator(.{}){};
+const allocator = gpa.allocator();
+var buffer = try std.ArrayList(u8)
+    .initCapacity(allocator, 10);
+defer buffer.deinit(allocator);
+
+try buffer.appendSlice(allocator, "My Pedro");
+try buffer.insert(allocator, 4, '3');
+try buffer.insertSlice(allocator, 2, " name");
+for (buffer.items) |char| {
+    try stdout.print("{c}", .{char});
+}
+try stdout.flush();
+```
+
+```
+My name P3edro
+```
+
+
+### Yhteenveto
+
+Jos kaipaat jotain muuta metodia, suosittelen
+lukemaan [`ArrayListAligned`-structin virallisen dokumentaation](https://ziglang.org/documentation/master/std/#std.array_list.ArrayListAligned)[^zig-array2],
+joka kuvaa useimmat `ArrayList`-olion kautta saatavilla olevat metodit.
+
+Huomaat, että tällä sivulla on paljon muita metodeja,
+joita en kuvannut tässä, ja suosittelen tutkimaan näitä metodeja
+ja ymmärtämään, miten ne toimivat.
+
+[^zig-array2]: <https://ziglang.org/documentation/master/std/#std.array_list.ArrayListAligned>
+
+
+
+## Kartat tai hajautustaulukot {#sec-maps-hashtables}
+
+Jotkut ammattilaiset tuntevat tämän tietorakenteen eri termeillä, kuten "kartta",
+"hajautuskartta" tai "assosiatiiviset taulukot". Yleisin käytetty termi on kuitenkin *hajautustaulukko*.
+Jokaisessa ohjelmointikielessä on yleensä jonkinlainen toteutus hajautustaulukosta
+standardikirjastossaan. Pythonilla on `dict()`, C++:lla on `std::map` ja `std::unordered_map`, Rustilla
+on `HashMap`, Javascriptillä on `Object()` ja `Map()` jne.
+
+
+
+### Mikä on hajautustaulukko?
+
+Hajautustaulukko on avain-arvo-pareihin perustuva tietorakenne.
+Annat tälle rakenteelle avaimen ja arvon, ja hajautustaulukko tallentaa
+syötteen arvon sijaintiin, joka voidaan tunnistaa antamallasi
+avaimella.
+Se tekee tämän käyttämällä taustalla olevaa taulukkoa ja hajautusfunktiota.
+Nämä kaksi komponenttia ovat olennaisia sille, miten hajautustaulukko toimii.
+
+Konepellin alla hajautustaulukko sisältää taulukon. Tässä taulukossa arvot
+tallennetaan, ja taulukon elementtejä kutsutaan yleensä *altaiksi*.
+Joten antamasi arvot tallennetaan alttien sisään,
+ja käytät indeksiä päästäksesi kuhunkin altaaseen.
+
+Kun annat avaimen hajautustaulukolle, se välittää tämän avaimen
+hajautusfunktiolle. Tämä hajautusfunktio käyttää jotain hajautusalgoritmia muuntaakseen
+tämän avaimen indeksiksi. Tämä indeksi on itse asiassa taulukon indeksi. Se on sijainti
+hajautustaulukon taustataulukossa.
+Näin avain tunnistaa tietyn sijainnin (tai paikan) hajautustaulukkorakenteen sisällä.
+
+Siksi annat avaimen hajautustaulukolle, ja tämä avain tunnistaa tietyn sijainnin
+hajautustaulukossa, ja hajautustaulukko ottaa antamasi syötteen arvon
+ja tallentaa tämän arvon avaimen tunnistamaan sijaintiin.
+Voit sanoa, että avain kartoittaa hajautustaulukkoon tallennettuun arvoon. Löydät
+arvon käyttämällä avainta, joka tunnistaa sijainnin, jossa arvo on tallennettu.
+@fig-hashtable esittää tämän prosessin visuaalisesti.
+
+
+![Hajautustaulukon kaavio. Lähde: Wikipedia, vapaa tietosanakirja.](./../Figures/hashtable.svg){#fig-hashtable}
+
+
+Edellisessä kappaleessa kuvattua operaatiota kutsutaan yleensä *lisäysoperaatioksi*.
+Koska lisäät uusia arvoja hajautustaulukkoon.
+Mutta hajautustaulukoissa on myös muita operaatiotyyppejä, kuten *poisto* ja *haku*.
+Poisto on itsensä selittävä: se on kun poistat (tai poistat) arvon hajautustaulukosta.
+Haku puolestaan vastaa tilannetta, jossa katsot hajautustaulukkoon tallennettua arvoa
+käyttämällä avainta, joka tunnistaa sijainnin, jossa tämä arvo on tallennettu.
+
+Joskus arvoja ei tallenneta suoraan, vaan hajautustaulukon taustataulukko voi olla osoitintaulukko,
+eli taulukon altaat tallentavat osoittimia, jotka osoittavat arvoon,
+tai se voi myös olla linkitettyjen listojen taulukko.
+Nämä tapaukset ovat yleisiä hajautustaulukoissa, jotka sallivat päällekkäiset avaimet, eli toisin sanoen
+hajautustaulukoissa, jotka käsittelevät tehokkaasti hajautusfunktiosta johtuvia "törmäyksiä".
+
+Päällekkäiset avaimet, tai tämä "törmäys"-asia, josta puhun, tarkoittaa tilannetta, jossa sinulla on kaksi eri avainta,
+jotka osoittavat samaan sijaintiin (eli samaan indeksiin)
+hajautustaulukon taustataulukossa. Tämä saattaa tapahtua käytetyn hajautusfunktion
+ominaisuuksista riippuen. Jotkin hajautustaulukon toteutukset käsittelevät törmäykset aktiivisesti,
+eli ne käsittelevät tämän tapauksen jollakin tavalla. Esimerkiksi hajautustaulukko
+saattaa muuttaa kaikki altaat linkitetyiksi listoiksi. Koska linkitetyllä listalla voit tallentaa
+useita arvoja yhteen altaaseen.
+
+Hajautustaulukoiden törmäysten käsittelyyn on erilaisia tekniikoita, joita en kuvaa
+tässä kirjassa, koska se ei ole pääasiallinen aihealueemme. Mutta löydät hyvän kuvauksen
+joistakin yleisimmistä tekniikoista hajautustaulukoiden Wikipedia-sivulta [@wikipedia_hashtables].
+
+
+### Hajautustaulukot Zigissä {#sec-hashmap}
+
+Zigin standardikirjasto tarjoaa erilaisia toteutuksia hajautustaulukosta.
+Jokaisella toteutuksella on omat haittansa ja etunsa, joita käsittelemme
+myöhemmin, ja kaikki ne ovat saatavilla `std.hash_map`-moduulin kautta.
+
+`HashMap`-struct on yleiskäyttöinen hajautustaulukko,
+jolla on hyvin nopeat operaatiot (haku, lisäys, poisto) ja myös
+melko korkea kuormituskerroin matalan muistinkäytön takaamiseksi. Voit luoda ja antaa konteksti-olion
+`HashMap`-rakentajalle. Tämä kontekstiolio antaa sinun räätälöidä
+itse hajautustaulukon käyttäytymistä, koska voit
+antaa hajautusfunktion toteutuksen hajautustaulukon käytettäväksi
+tämän kontekstiolion kautta.
+
+Mutta älä huolehdi tästä kontekstioliosta nyt, koska se on tarkoitettu
+"hajautustaulukoiden asiantuntijoiden" käyttöön. Koska emme todennäköisesti ole
+asiantuntijoita tällä alalla, otamme helpon tavan luoda
+hajautustaulukko. Eli käytämme `AutoHashMap()`-funktiota.
+
+
+Tämä `AutoHashMap()`-funktio on pohjimmiltaan "luo hajautustaulukko-olio, joka käyttää oletusasetuksia"
+-tyyppinen funktio. Se valitsee automaattisesti konteksti-olion ja siten hajautusfunktion toteutuksen
+puolestasi. Tämä funktio vastaanottaa kaksi datatyyppiä syötteenä: ensimmäinen syöte on avainten datatyyppi,
+jota käytetään tässä hajautustaulukossa, kun taas toinen syöte on datatyyppi datalle, joka
+tallennetaan hajautustaulukkoon, eli tallennettavien arvojen datatyyppi.
+
+Alla olevassa esimerkissä annamme datatyypin `u32` ensimmäisessä argumentissa ja `u16` toisessa argumentissa.
+Tämä tarkoittaa, että käytämme `u32`-arvoja avaimina tässä hajautustaulukossa, kun taas `u16`-arvot ovat todelliset arvot,
+jotka tallennetaan tähän hajautustaulukkoon.
+Tämän prosessin lopussa `hash_table`-olio sisältää `HashMap`-olion,
+joka käyttää oletusasetuksia ja kontekstia.
+
+
+```{zig}
+#| auto_main: false
+#| build_type: "lib"
+const std = @import("std");
+const AutoHashMap = std.hash_map.AutoHashMap;
+
+pub fn main() !void {
+    var gpa = std.heap.DebugAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var hash_table = AutoHashMap(u32, u16).init(allocator);
+    defer hash_table.deinit();
+
+    try hash_table.put(54321, 89);
+    try hash_table.put(50050, 55);
+    try hash_table.put(57709, 41);
+    std.debug.print(
+        "N of values stored: {d}\n",
+        .{hash_table.count()}
+    );
+    std.debug.print(
+        "Value at key 50050: {d}\n",
+        .{hash_table.get(50050).?}
+    );
+
+    if (hash_table.remove(57709)) {
+        std.debug.print(
+            "Value at key 57709 successfully removed!\n",
+            .{}
+        );
+    }
+    std.debug.print(
+        "N of values stored: {d}\n",
+        .{hash_table.count()}
+    );
+}
+```
+
+```
+N of values stored: 3
+Value at key 50050: 55
+Value at key 57709 successfully removed!
+N of values stored: 2
+```
+
+Voit lisätä/asettaa uusia arvoja hajautustaulukkoon käyttämällä `put()`-metodia. Ensimmäinen argumentti
+on käytettävä avain, ja toinen argumentti on todellinen arvo, jonka haluat tallentaa
+hajautustaulukkoon. Alla olevassa esimerkissä lisäämme ensin arvon 89 avaimella 54321, seuraavaksi
+lisäämme arvon 55 avaimella 50050 jne.
+
+Huomaa, että käytimme `count()`-metodia nähdäksemme, kuinka monta arvoa on tällä hetkellä tallennettu
+hajautustaulukkoon. Sen jälkeen käytämme myös `get()`-metodia päästäksemme (tai katsoaksemme) avaimen 500050 tunnistamaan sijaintiin tallennettua arvoa.
+Tämän `get()`-metodin tulos on valinnainen arvo.
+Siksi käytämme lopussa `?`-metodia saadaksemme todellisen arvon.
+
+Huomaa myös, että voimme poistaa (tai poistaa) arvoja hajautustaulukosta käyttämällä `remove()`-metodia.
+Annat avaimen, joka tunnistaa poistettavan arvon, ja metodi
+poistaa tämän arvon ja palauttaa `true`-arvon tuloksena. Tämä `true`-arvo kertoo meille pohjimmiltaan,
+että metodi poisti arvon onnistuneesti.
+
+Mutta tämä poisto-operaatio ei välttämättä aina onnistu. Esimerkiksi saatat antaa väärän
+avaimen tälle metodille. Tarkoitan, että ehkä annat
+(tahallisesti tai tahattomasti) avaimen, joka osoittaa tyhjään altaaseen,
+eli altaaseen, jossa ei vielä ole arvoa.
+Tässä tapauksessa `remove()`-metodi palauttaisi `false`-arvon.
+
+
+
+### Hajautustaulukon läpikäynti
+
+Hajautustaulukkoon tällä hetkellä tallennettujen avainten ja arvojen läpikäynti
+on hyvin yleinen tarve.
+Voit tehdä sen Zigissä käyttämällä iteraattorioliota, joka voi iteroida
+hajautustaulukko-oliosi elementtien läpi.
+
+Tämä iteraattoriolio toimii kuten mikä tahansa muu iteraattoriolio, jonka löydät
+kielistä kuten C++ ja Rust. Se on pohjimmiltaan osoitinolio,
+joka osoittaa johonkin arvoon säilössä, ja sillä on `next()`-metodi,
+jota voit käyttää navigoidaksesi (tai iteroidaksesi) säilön arvojen läpi.
+
+Voit luoda tällaisen iteraattoriolion käyttämällä hajautustaulukko-olion `iterator()`-metodia.
+Tämä metodi palauttaa iteraattoriolion, josta voit käyttää `next()`-metodia yhdessä
+while-silmukan kanssa iteroidaksesi hajautustaulukkosi elementtien läpi. `next()`-metodi palauttaa valinnaisen
+`Entry`-arvon, ja siksi sinun täytyy purkaa tämä valinnainen arvo saadaksesi todellisen `Entry`-arvon,
+josta voit käyttää avainta ja myös tämän avaimen tunnistamaa arvoa.
+
+Kun sinulla on tämä `Entry`-arvo käsillä, voit käyttää tämän nykyisen merkinnän avainta `key_ptr`-attribuutin avulla
+ja dereferoidaksesi sen sisällä olevan osoittimen, kun taas tämän avaimen tunnistama arvo käytetään
+`value_ptr`-attribuutin kautta, joka on myös dereferoitava osoitin.
+Alla oleva koodiesimerkki havainnollistaa näiden elementtien käyttöä:
+
+
+```{zig}
+#| auto_main: false
+#| build_type: "lib"
+const std = @import("std");
+const AutoHashMap = std.hash_map.AutoHashMap;
+
+pub fn main() !void {
+    var gpa = std.heap.DebugAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var hash_table = AutoHashMap(u32, u16).init(allocator);
+    defer hash_table.deinit();
+
+    try hash_table.put(54321, 89);
+    try hash_table.put(50050, 55);
+    try hash_table.put(57709, 41);
+
+    var it = hash_table.iterator();
+    while (it.next()) |kv| {
+        // Access the current key
+        std.debug.print("Key: {d} | ", .{kv.key_ptr.*});
+        // Access the current value
+        std.debug.print("Value: {d}\n", .{kv.value_ptr.*});
+    }
+}
+```
+
+```
+Key: 54321 | Value: 89
+Key: 50050 | Value: 55
+Key: 57709 | Value: 41
+```
+
+
+Jos haluat iteroida erityisesti hajautustaulukkosi arvojen tai avainten läpi,
+voit luoda avainiteraattorin tai arvoiteraattorin. Nämä ovat myös iteraattoriolioita,
+joilla on sama `next()`-metodi, jota voit käyttää hajautustaulukon läpikäyntiin.
+
+Avainiteraattorit luodaan hajautustaulukko-oliosi `keyIterator()`-metodista,
+kun taas arvoiteraattorit luodaan `valueIterator()`-metodista.
+Sinun tarvitsee vain purkaa arvo `next()`-metodista ja dereferoida se
+suoraan päästäksesi avaimeen tai arvoon, jonka yli iteroidaan.
+Alla oleva koodiesimerkki havainnollistaa avainiteraattorin käyttöä,
+mutta voit toistaa saman logiikan arvoiteraattorille.
+
+```{zig}
+#| eval: false
+var kit = hash_table.keyIterator();
+while (kit.next()) |key| {
+    std.debug.print("Key: {d}\n", .{key.*});
+}
+```
+
+```
+Key: 54321
+Key: 50050
+Key: 57709
+```
+
+
+### `ArrayHashMap`-hajautustaulukko {#sec-array-map}
+
+Jos sinun täytyy iteroida hajautustaulukkosi elementtien läpi jatkuvasti,
+saatat haluta käyttää `ArrayHashMap`-structia omaan tapaukseesi
+sen sijaan, että valitsisit tavanomaisen yleiskäyttöisen `HashMap`-structin.
+
+`ArrayHashMap`-struct luo hajautustaulukon, jonka läpikäynti on nopeampaa.
+Siksi tämä erityinen hajautustaulukkotyyppi saattaa olla arvokas sinulle.
+Joitakin muita `ArrayHashMap`-hajautustaulukon ominaisuuksia ovat:
+
+- lisäysjärjestys säilyy, eli arvojen järjestys, jonka löydät iteroidessasi tätä hajautustaulukkoa, on itse asiassa järjestys, jossa nämä arvot lisättiin hajautustaulukkoon.
+- avain-arvo-parit tallennetaan peräkkäin, toinen toisensa jälkeen.
+
+
+Voit luoda `ArrayHashMap`-olion jälleen kerran apufunktiolla, joka
+valitsee automaattisesti hajautusfunktion toteutuksen puolestasi. Tämä on
+`AutoArrayHashMap()`-funktio, joka toimii hyvin samankaltaisesti kuin @sec-hashmap esittelemä `AutoHashMap()`-funktio.
+
+Annat tälle funktiolle kaksi datatyyppiä. Hajautustaulukossa käytettävien avainten datatyyppi
+ja hajautustaulukkoon tallennettavien arvojen datatyyppi.
+
+`ArrayHashMap`-oliolla on pohjimmiltaan täsmälleen samat metodit kuin `HashMap`-structilla.
+Joten voit lisätä uusia arvoja hajautustaulukkoon käyttämällä `put()`-metodia, ja voit katsoa (tai hakea)
+arvon hajautustaulukosta käyttämällä `get()`-metodia. Mutta `remove()`-metodi ei ole saatavilla
+tässä erityisessä hajautustaulukkotyypissä.
+
+Arvojen poistamiseksi hajautustaulukosta käyttäisit samoja metodeja, jotka löydät
+`ArrayList`-oliosta, eli dynaamisesta taulukosta. Esittelin nämä metodit @sec-dynamic-array-remove,
+jotka ovat `swapRemove()`- ja `orderedRemove()`-metodit. Näillä metodeilla on sama merkitys täällä tai
+sama vaikutus kuin niillä on `ArrayList`-oliossa.
+
+Tämä tarkoittaa, että `swapRemove()`-metodilla poistat arvon hajautustaulukosta, mutta et säilytä
+järjestystä, jossa arvot lisättiin rakenteeseen. Kun taas `orderedRemove()` pystyy
+säilyttämään järjestyksen, jossa nämä arvot lisättiin.
+
+Mutta sen sijaan, että antaisit indeksin syötteenä `swapRemove()`- tai `orderedRemove()`-metodille, kuten kuvasin
+@sec-dynamic-array-remove, nämä metodit `ArrayHashMap`-rakenteessa ottavat avaimen syötteenä, kuten
+`HashMap`-olion `remove()`-metodi. Jos haluat antaa indeksin syötteenä
+avaimen sijaan, sinun tulisi käyttää `swapRemoveAt()`- ja `orderedRemoveAt()`-metodeja.
+
+
+```{zig}
+#| eval: false
+var hash_table = AutoArrayHashMap(u32, u16)
+    .init(allocator);
+defer hash_table.deinit();
+```
+
+
+
+### `StringHashMap`-hajautustaulukko {#sec-string-hash-map}
+
+Yksi asia, jonka huomaat kahdessa muussa edellisissä osioissa esittelemässäni hajautustaulukkotyypissä,
+on, että kumpikaan niistä ei hyväksy viipale-datatyyppiä
+avaimissaan.
+Tämä tarkoittaa, että et voi käyttää viipalearvoa avaimen esittämiseen
+näissä hajautustaulukkotyypeissä.
+
+Ilmeisin seuraamus tästä on, että et voi käyttää merkkijonoja avaimina
+näissä hajautustaulukoissa. Mutta on erittäin yleistä käyttää merkkijonoja avaimina
+hajautustaulukoissa.
+
+Ota tämä hyvin yksinkertainen Javascript-koodinpätkä esimerkkinä. Luomme
+yksinkertaisen hajautustaulukko-olion nimeltä `people`. Sitten lisäämme uuden merkinnän tähän
+hajautustaulukkoon, joka tunnistetaan merkkijonolla `'Pedro'`. Tämä merkkijono on
+tässä tapauksessa avain, kun taas olio, joka sisältää erilaisia henkilökohtaisia tietoja kuten
+ikä, pituus ja kaupunki, on hajautustaulukkoon tallennettava arvo.
+
+Tämä malli merkkijonojen käyttämisestä avaimina on hyvin yleinen
+kaikenlaisissa tilanteissa. Siksi Zigin standardikirjasto tarjoaa
+erityisen hajautustaulukkotyypin tätä tarkoitusta varten, joka luodaan `StringHashMap()`-funktiolla.
+Tämä funktio luo hajautustaulukon, joka käyttää merkkijonoja avaimina. Ainoa syöte tälle
+funktiolle on datatyyppi arvoille, jotka tallennetaan tähän hajautustaulukkoon.
+
+Alla olevassa esimerkissä luon hajautustaulukon eri ihmisten ikien tallentamiseen.
+Jokainen avain tässä hajautustaulukossa edustaa kunkin henkilön nimeä, kun taas hajautustaulukkoon tallennettu arvo
+on avaimen tunnistaman henkilön ikä.
+
+Siksi annan `u8`-datatyypin (jota käytetään ikäarvoissa) syötteenä tälle `StringHashMap()`-funktiolle.
+Tuloksena se luo hajautustaulukon, joka käyttää merkkijonoarvoja avaimina ja tallentaa
+siihen `u8`-arvoja. Huomaa, että allokaattoriolio annetaan `StringHashMap()`-funktion
+tuloksena saadun olion `init()`-metodissa.
+
+```{zig}
+#| auto_main: false
+#| build_type: "lib"
+const std = @import("std");
+pub fn main() !void {
+    var gpa = std.heap.DebugAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var ages = std.StringHashMap(u8).init(allocator);
+    defer ages.deinit();
+
+    try ages.put("Pedro", 25);
+    try ages.put("Matheus", 21);
+    try ages.put("Abgail", 42);
+
+    var it = ages.iterator();
+    while (it.next()) |kv| {
+        std.debug.print("Key: {s} | ", .{kv.key_ptr.*});
+        std.debug.print("Age: {d}\n", .{kv.value_ptr.*});
+    }
+}
+```
+
+```
+Key: Pedro | Age: 25
+Key: Abgail | Age: 42
+Key: Matheus | Age: 21
+```
+
+
+### `StringArrayHashMap`-hajautustaulukko
+
+Zigin standardikirjasto tarjoaa myös hajautustaulukkotyypin, joka yhdistää
+`StringHashMap`- ja `ArrayHashMap`-rakenteiden edut ja haitat. Eli hajautustaulukko,
+joka käyttää merkkijonoja avaimina, mutta jolla on myös `ArrayHashMap`-rakenteen edut.
+Toisin sanoen voit saada hajautustaulukon, jonka läpikäynti on nopeaa,
+joka säilyttää lisäysjärjestyksen ja käyttää myös merkkijonoja avaimina.
+
+Voit luoda tällaisen hajautustaulukkotyypin käyttämällä `StringArrayHashMap()`-funktiota.
+Tämä funktio hyväksyy datatyypin syötteenä, joka on hajautustaulukkoon tallennettavien arvojen datatyyppi,
+samalla tyylillä kuin @sec-string-hash-map esitelty funktio.
+
+Voit lisätä uusia arvoja tähän hajautustaulukkoon käyttämällä samaa `put()`-metodia, josta
+olemme keskustelleet @sec-string-hash-map. Ja voit myös hakea arvoja hajautustaulukosta
+käyttämällä samaa `get()`-metodia.
+Kuten sen `ArrayHashMap`-veli, arvojen poistamiseen tästä erityisestä hajautustaulukkotyypistä
+käytämme myös `orderedRemove()`- ja `swapRemove()`-metodeja samoilla vaikutuksilla, jotka
+olen kuvannut @sec-array-map.
+
+Jos otamme @sec-string-hash-map esitetyn koodiesimerkin, voimme
+saavuttaa täsmälleen saman tuloksen `StringArrayHashMap()`-funktiolla:
+
+```{zig}
+#| eval: false
+var ages = std.StringArrayHashMap(u8).init(allocator);
+```
+
+
+
+
+## Linkitetyt listat
+
+Zigin standardikirjasto tarjoaa toteutuksen sekä yksisuuntaisille että kaksisuuntaisille linkitetyille listoille.
+Tarkemmin sanottuna structien `SinglyLinkedList` ja `DoublyLinkedList` kautta.
+
+Jos et ole tuttu näihin tietorakenteisiin, linkitetty lista on lineaarinen tietorakenne, joka näyttää
+ketjulta tai köydeltä. Tämän tietorakenteen pääetu on, että sinulla on yleensä hyvin nopeat
+lisäys- ja poisto-operaatiot. Haitaksi puolestaan on, että tämän tietorakenteen läpikäynti
+ei yleensä ole yhtä nopeaa kuin taulukon läpikäynti.
+
+Linkitetyn listan idea on rakentaa rakenne, joka koostuu solmujen jonosta,
+jotka on yhdistetty toisiinsa osoittimilla. Tämä tarkoittaa, että linkitetyt listat eivät yleensä ole yhtenäisiä
+muistissa, koska jokainen solmu voi olla missä tahansa muistissa. Niiden ei tarvitse olla lähellä
+toisiaan.
+
+@fig-linked-list näemme kaavion yksisuuntaisesta linkitetystä listasta. Aloitamme ensimmäisestä solmusta
+(jota kutsutaan yleensä "linkitetyn listan pääksi"). Sitten tästä
+ensimmäisestä solmusta paljastamme rakenteen loput solmut seuraamalla kussakin solmussa löytyvien
+osoittimien osoittamia sijainteja.
+
+Jokaisessa solmussa on kaksi asiaa. Siinä on nykyisessä solmussa tallennettu arvo
+ja myös osoitin. Tämä osoitin osoittaa listan seuraavaan solmuun. Jos tämä osoitin
+on null, se tarkoittaa, että olemme saavuttaneet linkitetyn listamme lopun.
+
+![Kaavio yksisuuntaisesta linkitetystä listasta.](./../Figures/linked-list.png){#fig-linked-list}
+
+
+@fig-linked-list2 näemme kaavion kaksisuuntaisesta linkitetystä listasta. Ainoa asia, joka todella
+muuttuu, on se, että jokaisessa solmussa on sekä osoitin edelliseen solmuun
+että osoitin seuraavaan solmuun. Joten jokaisessa kaksisuuntaisen linkitetyn listan solmussa on kaksi osoitinta. Näitä kutsutaan
+yleensä solmun `prev`- (eli "previous", edellinen) ja `next`- (eli "next", seuraava) osoittimiksi.
+
+Yksisuuntaisen linkitetyn listan esimerkissä meillä oli vain yksi osoitin kussakin solmussa, ja tämä yksittäinen
+osoitin osoitti aina seuraavaan solmuun jonossa. Tämä tarkoittaa, että yksisuuntaisissa linkitetyissä listoissa
+on yleensä vain `next`-osoitin.
+
+
+![Kaavio kaksisuuntaisesta linkitetystä listasta.](./../Figures/doubly-linked-list.png){#fig-linked-list2}
+
+
+
+### Viimeaikainen muutos API:ssa
+
+Zigin aiemmissa versioissa `SinglyLinkedList`- ja `DoublyLinkedList`-structit toteutettiin aluksi "geneerisinä tietorakenteina".
+Tämä tarkoittaa, että käyttäisit geneeristä funktiota luodaksesi yksisuuntaisen (tai kaksisuuntaisen) linkitetyn listan, joka voi tallentaa
+haluamasi erityisen datatyypin. Opimme lisää geneerisyydestä @sec-generics, ja myös
+miten voimme luoda "geneerisen tietorakenteen" @sec-generic-struct.
+
+Zigin uusimmissa versioissa structeja `SinglyLinkedList` ja `DoublyLinkedList` muutettiin kuitenkin käyttämään
+"vähemmän geneeristä API:a". Tämä erityinen muutos otettiin käyttöön 3. huhtikuuta 2025. Siksi tarkista, onko Zig-versiosi julkaistu tämän
+päivämäärän jälkeen. Pidä mielessä, että jos sinulla ei ole hyvin tuoretta versiota Zig-kääntäjästä,
+saatat kohdata ongelmia yrittäessäsi kääntää seuraavia esimerkkejä.
+
+
+
+### Yksisuuntaisen linkitetyn listan käyttö
+
+Esimerkiksi oletetaan, että luot yksisuuntaisen linkitetyn listan, joka tallentaa `u32`-arvoja.
+Tässä skenaariossa ensimmäinen asia, jonka meidän täytyy tehdä, on luoda "solmutyyppi", joka pystyy
+tallentamaan `u32`-arvon. Alla esitetty `NodeU32`-tyyppi havainnollistaa tällaista "solmutyyppiä".
+
+Huomaa, että jäsenen `data` datatyyppi on tärkein osa tätä
+mukautettua "solmutyyppiä". Se määrittää datatyypin, joka tallennetaan kuhunkin solmuun.
+
+```{zig}
+#| eval: false
+const std = @import("std");
+const NodeU32 = struct {
+    data: u32,
+    node: std.SinglyLinkedList.Node = .{},
+};
+```
+
+Kun olemme luoneet mukautetun "solmutyypin", joka voi tallentaa haluamamme erityisen datatyypin,
+voimme luoda uuden ja tyhjän yksisuuntaisen linkitetyn listan, joka tallentaa solmumme.
+Teemme sen luomalla uuden olion tyypiltään `SinglyLinkedList`, näin:
+
+```{zig}
+#| eval: false
+var list: std.SinglyLinkedList = .{};
+```
+
+Nyt meillä on linkitetty lista... Mutta miten voimme lisätä solmuja siihen? No, ensinnäkin
+meidän täytyy luoda solmumme. Keskitytään siihen ensin. Alla esitetty koodinpätkä havainnollistaa,
+miten voisimme käyttää `NodeU32`-structiamme tällaisten solmujen luomiseen.
+
+Huomaa tässä koodinpätkässä, että asetamme toistaiseksi vain structin `data`-jäsenen.
+Emme tarvitse yhdistää näitä solmuja toisiinsa tässä ensimmäisessä vaiheessa. Siksi jätämme
+`node`-jäsenen huomiotta aluksi. Mutta yhdistämme nämä solmut myöhemmin koodissa, minkä vuoksi
+nämä oliot merkitään "muuttuvaolioiksi", jotta voimme muuttaa niitä myöhemmin.
+
+```{zig}
+#| eval: false
+var one: NodeU32 = .{ .data = 1 };
+var two: NodeU32 = .{ .data = 2 };
+var three: NodeU32 = .{ .data = 3 };
+var five: NodeU32 = .{ .data = 5 };
+```
+
+Nyt kun meillä on sekä linkitetty lista että solmut luotuina, voimme alkaa yhdistää ne toisiinsa.
+Voit käyttää linkitetyn listan olion `prepend()`-metodia lisätäksesi ensimmäisen solmun listaan, joka
+on listan "pää". Kuten nimi ehdottaa, tämä erityinen metodi lisää syötesolmun linkitetyn listan alkuun,
+eli muuttaa syötesolmun listan ensimmäiseksi solmuksi.
+
+Kun olemme lisänneet listan "pääsolmun", voimme alkaa lisätä "seuraavia solmuja" listaan käyttämällä `insertAfter()`-metodia
+tyypistä `SinglyLinkedList.Node`, joka on tässä tapauksessa käytettävissä `NodeU32`-tyypin
+`node`-jäsenen kautta. Voimme siis alkaa luoda yhteyksiä solmujen välille kutsumalla tätä metodia listassa olevista solmuolioista.
+Kuten tässä esimerkissä:
+
+```{zig}
+#| eval: false
+list.prepend(&two.node); // {2}
+two.node.insertAfter(&five.node); // {2, 5}
+two.node.insertAfter(&three.node); // {2, 3, 5}
+```
+
+Voit myös kutsua `prepend()`-metodia uudelleen lisätäksesi uusia solmuja linkitetyn listan alkuun, mikä
+tarkoittaa käytännössä listan "pääsolmun" vaihtamista, näin:
+
+```{zig}
+#| eval: false
+list.prepend(&one.node); // {1, 2, 3, 5}
+```
+
+
+Yksisuuntaisesta linkitetystä listasta on saatavilla muitakin metodeja, joista saatat olla kiinnostunut. Löydät
+niiden yhteenvedon alla olevista luettelomerkeistä:
+
+- `remove()` poistaa tietyn solmun linkitetystä listasta.
+- `len()` laskee, kuinka monta solmua linkitetyssä listassa on.
+- `popFirst()` poistaa ensimmäisen solmun (eli "pään") linkitetystä listasta.
+
+Joten näin yksisuuntaiset linkitetyt listat toimivat Zigissä yhteenvetona. Tässä on kaikki tässä osiossa esitetty lähdekoodi yhdessä solussa:
+
+```{zig}
+#| build_type: "run"
+#| auto_main: true
+const NodeU32 = struct {
+    data: u32,
+    node: std.SinglyLinkedList.Node = .{},
+};
+
+var list: std.SinglyLinkedList = .{};
+var one: NodeU32 = .{ .data = 1 };
+var two: NodeU32 = .{ .data = 2 };
+var three: NodeU32 = .{ .data = 3 };
+var five: NodeU32 = .{ .data = 5 };
+
+list.prepend(&two.node); // {2}
+two.node.insertAfter(&five.node); // {2, 5}
+two.node.insertAfter(&three.node); // {2, 3, 5}
+list.prepend(&one.node); // {1, 2, 3, 5}
+
+try stdout.print("Number of nodes: {}", .{list.len()});
+try stdout.flush();
+```
+
+
+### Kaksisuuntaisen linkitetyn listan käyttö
+
+Jos haluat käyttää kaksisuuntaista linkitettyä listaa sen sijaan, kohtaat samanlaisen työnkulun verrattuna
+yksisuuntaiseen linkitettyyn listaan:
+
+1. Luot ensin "mukautetun solmutyypin", joka voi tallentaa haluamasi erityisen datatyypin.
+2. Luot tyhjän kaksisuuntaisen linkitetyn listan olion.
+3. Luot linkitetyn listan solmut.
+4. Alat lisätä solmuja listaan.
+
+"Mukautetussa solmutyypissäsi" sinun tulisi käyttää tyyppiä `DoublyLinkedList.Node` merkitsemään
+structin `node`-jäsentä. Alla oleva koodinpätkä havainnollistaa tätä. Luomme
+jälleen solmutyypin, joka voi tallentaa `u32`-arvoja. Mutta tällä kertaa tämä struct on räätälöity
+käytettäväksi `DoublyLinkedList`-structin sisällä.
+
+Tämän vaiheen jälkeen tapa, jolla luot uuden tyhjän linkitetyn listan ja solmut, jotka haluat lisätä,
+on käytännössä identtinen yksisuuntaisen linkitetyn listan tapauksen kanssa. Mutta tällä kertaa
+käytämme yleensä linkitetyn listan olion `append()`-metodia lisätäksemme uusia solmuja listaan.
+
+Tämä linkitetyn listan olion `append()`-metodi lisää aina syötesolmun linkitetyn listan loppuun.
+Jos kuitenkin haluat lisätä uuden solmun listan eri kohtaan,
+sinun tulisi katsoa linkitetyn listan olion `insertAfter()`- ja `insertBefore()`-metodeja.
+Nämä metodit antavat sinun lisätä uuden solmun joko olemassa olevan solmun jälkeen tai ennen sitä.
+
+
+```{zig}
+#| build_type: "run"
+#| auto_main: true
+const NodeU32 = struct {
+    data: u32,
+    node: std.DoublyLinkedList.Node = .{},
+};
+
+var list: std.DoublyLinkedList = .{};
+var one: NodeU32 = .{ .data = 1 };
+var two: NodeU32 = .{ .data = 2 };
+var three: NodeU32 = .{ .data = 3 };
+var five: NodeU32 = .{ .data = 5 };
+
+list.append(&one.node); // {1}
+list.append(&three.node); // {1, 3}
+list.insertAfter(
+    &one.node,
+    &five.node
+); // {1, 5, 3}
+list.append(&two.node); // {1, 5, 3, 2}
+
+try stdout.print("Number of nodes: {}", .{list.len()});
+try stdout.flush();
+```
+
+Nämä ovat muita `DoublyLinkedList`-olion metodeja, joista saatat olla kiinnostunut:
+
+- `remove()`: poistaa tietyn solmun listasta.
+- `len()`: laskee solmujen määrän listassa.
+- `prepend()`: lisää solmun listan alkuun (eli asettaa listan pääsolmun).
+- `pop()`: poistaa listan viimeisen solmun.
+- `popFirst()`: poistaa listan ensimmäisen solmun.
+- `concatByMoving()`: yhdistää kaksi kaksisuuntaista linkitettyä listaa yhteen.
+
+
+### Linkitetyn listan läpikäynti
+
+Jos haluat iteroida linkitetyn listan elementtien läpi, sinun tarvitsee vain seurata
+"seuraavaan solmuun osoittavan osoittimen" luomaa polkua. Teemme tämän yleensä while-silmukassa, joka siirtyy
+seuraavaan solmuun yhä uudelleen, kunnes se löytää null-osoittimen, mikä tarkoittaa, että olemme saavuttaneet listan lopun.
+
+Seuraava esimerkki havainnollistaa, miten tällainen while-silmukka toimisi. Huomaa, että käytämme sisäänrakennettua funktiota `@fieldParentPtr()`
+saadaksemme osoittimen, joka osoittaa `node`-olion yläinstanssiin. Toisin sanoen
+saamme osoittimen `NodeU32`-instanssiin, joka sisältää nykyisen solmun. Näin voimme käyttää tätä osoitinta
+päästäksemme käsiksi tähän solmuun tällä hetkellä tallennettuun dataan.
+
+Huomaa myös, että jokaisella while-silmukan iteratiolla muutamme `it`-muuttujan arvoksi listan seuraavan solmun.
+While-silmukka keskeytyy hetkellä, jolloin tämä `it`-muuttuja muuttuu nulliksi, mikä tapahtuu
+kun listassa ei ole "seuraavaa solmua", mikä tarkoittaa, että olemme saavuttaneet listan lopun.
+
+
+```{zig}
+#| build_type: "run"
+#| auto_main: true
+#| results: "hide"
+const NodeU32 = struct {
+    data: u32,
+    node: std.SinglyLinkedList.Node = .{},
+};
+
+var list: std.SinglyLinkedList = .{};
+var one: NodeU32 = .{ .data = 1 };
+var two: NodeU32 = .{ .data = 2 };
+var three: NodeU32 = .{ .data = 3 };
+var five: NodeU32 = .{ .data = 5 };
+
+list.prepend(&two.node); // {2}
+list.prepend(&five.node); // {5, 2}
+list.prepend(&three.node); // {3, 5, 2}
+list.prepend(&one.node); // {1, 3, 5, 2}
+
+var it = list.first;
+while (it) |node| : (it = node.next) {
+    const l: *NodeU32 = @fieldParentPtr(
+        "node", node
+    );
+    try stdout.print(
+        "Current value: {}", .{l.data}
+    );
+}
+try stdout.flush();
+```
+
+```
+Current value: 1
+Current value: 3
+Current value: 5
+Current value: 2
+```
+
+
+
+
+## Monitaulukkorakenne
+
+Zig esittelee uuden tietorakenteen nimeltä `MultiArrayList()`. Se on erilainen versio @sec-dynamic-array esittelemästä dynaamisesta taulukosta.
+Ero tämän rakenteen ja @sec-dynamic-array `ArrayList()`-rakenteen välillä on, että `MultiArrayList()` luo erillisen dynaamisen taulukon
+jokaiselle syötteenä antamasi structin kentälle.
+
+Harkitse seuraavaa koodiesimerkkiä. Luomme uuden mukautetun structin nimeltä `Person`. Tämä
+struct sisältää kolme eri datajäsentä tai kolme eri kenttää. Seurauksena,
+kun annamme tämän `Person`-datatyypin syötteenä `MultiArrayList()`-funktiolle, se
+luo "kolmen eri taulukon structin" nimeltä `PersonArray`. Toisin sanoen
+tämä `PersonArray` on struct, joka sisältää kolme sisäistä dynaamista taulukkoa.
+Yksi taulukko kullekin `Person`-structin määrittelyssä löytyvälle kentälle.
+
+
+```{zig}
+#| auto_main: false
+const std = @import("std");
+const Person = struct {
+    name: []const u8,
+    age: u8,
+    height: f32,
+};
+const PersonArray = std.MultiArrayList(Person);
+
+pub fn main() !void {
+    var gpa = std.heap.DebugAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var people = PersonArray{};
+    defer people.deinit(allocator);
+
+    try people.append(allocator, .{
+        .name = "Auguste", .age = 15, .height = 1.54
+    });
+    try people.append(allocator, .{
+        .name = "Elena", .age = 26, .height = 1.65
+    });
+    try people.append(allocator, .{
+        .name = "Michael", .age = 64, .height = 1.87
+    });
+}
+```
+
+Toisin sanoen sen sijaan, että luotaisiin taulukko "henkilöistä", `MultiArrayList()`-funktio
+luo "taulukoiden structin". Jokainen tämän structin datajäsen on eri taulukko, joka tallentaa
+tietyn kentän arvot `Person`-arvoista, jotka lisättiin (tai appendattiin) tähän "taulukoiden structiin".
+Yksi tärkeä yksityiskohta on, että jokainen näistä erillisistä sisäisistä taulukoista `PersonArray`-rakenteessa
+on dynaaminen taulukko. Tämä tarkoittaa, että nämä taulukot voivat kasvaa kapasiteetissa automaattisesti tarpeen mukaan
+mahtuakseen enemmän arvoja.
+
+Alla esitetty @fig-multi-array esittää kaavion, joka kuvaa edellisessä koodiesimerkissä
+luomaamme `PersonArray`-structia. Huomaa, että kunkin kolmen `Person`-arvon datajäsenten arvot,
+jotka lisäsimme `PersonArray`-olioon, ovat hajautuneina kolmeen eri `PersonArray`-olion sisäiseen taulukkoon.
+
+![Kaavio `PersonArray`-structista.](./../Figures/multi-array.png){#fig-multi-array}
+
+Voit helposti käyttää kutakin näistä taulukoista erikseen ja iteroida kunkin taulukon arvojen läpi.
+Tätä varten sinun täytyy kutsua `items()`-metodia `PersonArray`-oliosta ja antaa syötteenä
+kentän nimi, jonka yli haluat iteroida.
+Jos haluat iteroida `.age`-taulukon läpi, sinun täytyy kutsua `items(.age)`-metodia
+`PersonArray`-oliosta, kuten alla olevassa esimerkissä:
+
+```{zig}
+#| eval: false
+for (people.items(.age)) |*age| {
+    try stdout.print("Age: {d}\n", .{age.*});
+}
+try stdout.flush();
+```
+
+```
+Age: 15
+Age: 26
+Age: 64
+```
+
+
+Yllä olevassa esimerkissä iteroidaan `.age`-taulukon arvojen läpi, eli
+`PersonArray`-olion sisäisen taulukon läpi, joka sisältää `age`-datajäsenen arvot
+`Person`-arvoista, jotka lisättiin monitaulukkorakenteeseen.
+
+Tässä esimerkissä kutsumme `items()`-metodia suoraan `PersonArray`-oliosta.
+Useimmissa tilanteissa on kuitenkin suositeltavaa kutsua tätä `items()`-metodia
+"viipaleoliosta", jonka voit luoda `slice()`-metodilla.
+Syy tähän on, että `items()`-metodin useiden kutsujen suorituskyky on parempi,
+jos käytät viipaleoliota.
+
+Siksi, jos aiot käyttää vain yhtä
+"monitaulukkorakenteen" sisäisistä taulukoista, on ok kutsua `items()`-metodia suoraan
+monitaulukko-oliosta. Mutta jos sinun täytyy käyttää useita "monitaulukkorakenteen" sisäisistä taulukoista,
+todennäköisesti sinun täytyy kutsua `items()`-metodia useammin kuin kerran, ja tällaisessa tilanteessa on parempi kutsua `items()`-metodia viipaleolion kautta.
+Alla oleva esimerkki havainnollistaa tällaisen olion käyttöä:
+
+```{zig}
+#| eval: false
+var slice = people.slice();
+for (slice.items(.age)) |*age| {
+    age.* += 10;
+}
+for (slice.items(.name), slice.items(.age)) |*n,*a| {
+    try stdout.print(
+        "Name: {s}, Age: {d}\n", .{n.*, a.*}
+    );
+}
+try stdout.flush();
+```
+
+```
+Name: Auguste, Age: 25
+Name: Elena, Age: 36
+Name: Michael, Age: 74
+```
+
+
+## Yhteenveto
+
+On monia muita tietorakenteita, joita en esitellyt tässä.
+Mutta voit tutustua niihin Zigin standardikirjaston virallisella dokumentaatiosivulla.
+Itse asiassa, kun menet [dokumentaation etusivulle](https://ziglang.org/documentation/master/std/#)[^home], ensimmäinen asia,
+joka näkyy tällä sivulla, on lista tyypeistä ja tietorakenteista, jotka
+ovat saatavilla Zigin standardikirjastossa.
+Tässä listassa on joitakin hyvin erityisiä tietorakenteita, kuten
+[`BoundedArray`-struct](https://ziglang.org/documentation/master/std/#std.bounded_array.BoundedArray)[^bounded],
+mutta siellä on myös yleisempiä rakenteita, kuten
+[`PriorityQueue`-struct](https://ziglang.org/documentation/master/std/#std.priority_queue.PriorityQueue)[^priority].
+
+
+[^home]: <https://ziglang.org/documentation/master/std/#>
+[^priority]: <https://ziglang.org/documentation/master/std/#std.priority_queue.PriorityQueue>.
+[^bounded]: <https://ziglang.org/documentation/master/std/#std.bounded_array.BoundedArray>
