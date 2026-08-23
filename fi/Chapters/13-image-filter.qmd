@@ -1,0 +1,668 @@
+---
+translation:
+  source: Chapters/13-image-filter.qmd
+  source_sha256: 16d60fa097d1f7241849c2593132164a467d043e93f3a24820231b418a585924
+  status: complete
+---
+
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+---
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+# Projekti 4 – Kuvasuodattimen kehittäminen
+
+Tässä luvussa rakennamme uuden projektin. Tämän projektin tavoitteena on
+kirjoittaa ohjelma, joka soveltaa suodatinta kuvan päälle.
+Tarkemmin sanottuna "harmaasävysuodatinta", joka muuntaa
+minkä tahansa värikuvan harmaasävykuvaksi.
+
+Käytämme tässä projektissa @fig-pascal-kuvassa näytettyä kuvaa.
+Toisin sanoen haluamme muuntaa tämän värillisen kuvan harmaasävykuvaksi
+käyttämällä Zigillä kirjoittamaamme "kuvasuodatinohjelmaa".
+
+![Kuva chileläis-amerikkalaisesta näyttelijästä Pedro Pascalista. Lähde: Google Images.](../ZigExamples/image_filter/pedro_pascal.png){#fig-pascal}
+
+Emme tarvitse paljon koodia rakentaaksemme tällaisen "kuvasuodatinohjelman". Meidän täytyy kuitenkin ensin
+ymmärtää, miten digitaaliset kuvat toimivat. Siksi aloitamme tämän luvun
+selittämällä digitaalisten kuvien teorian ja sen, miten värit esitetään nykyaikaisissa tietokoneissa.
+Annamme myös lyhyen selityksen PNG (Portable Network Graphics) -tiedostomuodosta, jota käytetään
+esimerkkikuvissa.
+
+Luvun lopussa meillä pitäisi olla täydellinen esimerkki ohjelmasta, joka ottaa @fig-pascal-kuvassa näytetyn PNG-kuvan
+syötteeksi ja kirjoittaa uuden kuvan nykyiseen työhakemistoon, joka on tämän syötekuvan harmaasävyversio.
+Tämän @fig-pascal-kuvan harmaasävyversio on esitetty @fig-pascal-gray-kuvassa.
+Löydät tämän pienen projektin täydellisen lähdekoodin `ZigExamples/image_filter`-
+[kansiosta tämän kirjan virallisesta repositoriosta](https://github.com/pedropark99/zig-book/tree/main/ZigExamples/image_filter)[^img-filter-folder].
+
+
+![Kuvan harmaasävyversio.](../ZigExamples/image_filter/pedro_pascal_filter.png){#fig-pascal-gray}
+
+
+## Miten näemme asioita? {#sec-eyes}
+
+Tässä osiossa haluan kuvata lyhyesti, miten me (ihmiset) todella näemme asioita omilla silmillämme.
+Tarkoitan, miten silmämme toimivat? Jos sinulla on hyvin perustason ymmärrys siitä, miten silmämme toimivat, ymmärrät
+helpommin, miten digitaaliset kuvat on tehty. Sillä digitaalisten kuvien taustalla olevat tekniikat
+kehittiin ottamalla paljon inspiraatiota siitä, miten ihmisen silmät toimivat.
+
+Voit tulkita ihmisen silmän valoanturiksi tai valoreseptoriksi. Silmä vastaanottaa tietyn määrän valoa syötteenä
+ja tulkitsee värit, jotka ovat läsnä tässä "valon määrässä".
+Jos silmään ei osu lainkaan valoa, silmä ei voi erottaa väriä siitä, ja seurauksena
+emme näe mitään, tai tarkemmin sanottuna näemme täydellistä mustuutta.
+
+Siksi kaikki riippuu valosta. Mitä todella näemme, ovat värit (sininen, punainen, oranssi, vihreä, violetti, keltainen jne.), jotka
+heijastuvat silmiimme osuvasta valosta. **Valo on kaikkien värien lähde!**
+Tämän Isaac Newton löysi kuuluisassa prisma-kokeessaan[^newton] 1660-luvulla.
+
+[^newton]: <https://library.si.edu/exhibition/color-in-a-new-light/science>
+
+Silmien sisällä on tietty solutyyppi, jota kutsutaan "kartiosoluksi".
+Silmässämme on kolme eri tyyppiä eli kolme eri versiota näistä "kartiosoluista".
+Jokainen kartiosolutyyppi on hyvin herkkä tietyn valon spektrille. Tarkemmin sanottuna
+spektreille, jotka määrittelevät punaisen, vihreän ja sinisen värit.
+Yhteenvetona: silmissämme on tiettyjä solutyyppejä, jotka
+ovat erittäin herkkiä näille kolmelle värille (punainen, vihreä ja sininen).
+
+Nämä solut vastaavat valon värien havaitsemisesta, joka osuu silmiimme.
+Seurauksena silmämme havaitsee värin sekoituksena näistä kolmesta väristä (punainen, vihreä ja sininen). Kun meillä on tietty määrä
+kutakin näistä kolmesta väristä ja sekoitamme ne yhteen, voimme saada minkä tahansa muun näkyvän värin,
+jonka haluamme. Joten jokainen näkemämme väri havaitaan tiettynä sekoituksena sinisistä, vihreistä ja punaisista,
+kuten 30 % punaista, plus 20 % vihreää, plus 50 % sinistä.
+
+Kun nämä kartiosolut havaitsevat (tai tunnistavat) värit, jotka löytyvät
+silmäämme osuvasta valosta, solut tuottavat sähkösignaaleja, jotka lähetetään aivoihin.
+Aivomme tulkitsevat nämä sähkösignaalit ja käyttävät niitä muodostaakseen kuvan, jonka näemme
+päässämme.
+
+Perustuen siihen, mitä olemme käsitelleet tässä, alla esitetyt kohdat kuvaavat tapahtumasarjaa, joka
+muodostaa tämän hyvin yksinkertaistetun version siitä, miten ihmisen silmät toimivat:
+
+1. Valo osuu silmiimme.
+1. Kartiosolut havaitsevat valossa olevat värit.
+1. Kartiosolut tuottavat sähkösignaaleja, jotka kuvaavat valossa havaittuja värejä.
+1. Sähkösignaalit lähetetään aivoihin.
+1. Aivot tulkitsevat nämä signaalit ja muodostavat kuvan sähkösignaaleissa tunnistettujen värien perusteella.
+
+
+## Miten digitaaliset kuvat toimivat? {#sec-digital-img}
+
+Digitaalinen kuva on "digitaalinen esitys" kuvasta, jonka näemme silmillämme.
+Toisin sanoen digitaalinen kuva on "digitaalinen esitys" väreistä, joita näemme
+ja havaitsemme valon kautta.
+Digitaalisessa maailmassa on kaksi kuvatyyppiä: vektorikuvat ja rasterikuvat.
+Vektorikuvia ei kuvata tässä. Muista siis, että tässä käsitelty sisältö
+**liittyy yksinomaan rasterikuviin**, ei vektorikuviin.
+
+Rasterikuva on digitaalisen kuvan tyyppi, joka esitetään 2D (kaksiulotteisena) pikselimatriisina.
+Toisin sanoen jokainen rasterikuva on käytännössä suorakulmio pikseleitä, ja jokaisella pikselillä on tietty väri.
+Joten rasterikuva on vain suorakulmio pikseleitä, ja jokainen näistä pikseleistä näytetään tietokoneesi näytöllä (tai minkä tahansa muun laitteen näytöllä, esim. kannettava, tabletti, älypuhelin jne.) värinä.
+
+@fig-raster demonstroi tätä ideaa. Jos otat minkä tahansa rasterikuvan ja zoomaat siihen hyvin lähelle,
+näet kuvan todelliset pikselit. JPEG, TIFF ja PNG ovat tiedostomuotoja, joita käytetään yleisesti
+rasterikuvien tallentamiseen.
+
+![Rasterikuvan zoomaaminen nähdäksesi pikselit. Lähde: Google Images.](../Figures/imagem-raster.png){#fig-raster}
+
+Mitä enemmän kuvassa on pikseleitä, sitä enemmän tietoa ja yksityiskohtia voimme sisällyttää kuvaan.
+Mitä tarkempi, terävämpi ja kauniimpi kuva näyttää. Siksi valokuvakamerat
+tuottavat yleensä suuria rasterikuvia, joissa on useita megapikseliä resoluutiota, jotta lopulliseen kuvaan saadaan mahdollisimman paljon yksityiskohtia.
+Esimerkkinä digitaalinen kuva, jonka mitat ovat 1920 pikseliä leveä ja 1080 pikseliä korkea, olisi kuva, joka
+sisältää yhteensä $1920 \times 1080 = 2073600$ pikseliä. Voit myös sanoa, että kuvan "kokonaispinta-ala" on
+2073600 pikseliä, vaikka "pinta-ala"-käsitettä ei todellakaan käytetä täällä tietokonegrafiikassa.
+
+Useimmat digitaaliset kuvat, joita näemme nykyaikaisessa maailmassamme, käyttävät RGB-värimallia. RGB tarkoittaa (punainen, vihreä ja sininen).
+Joten jokaisen pikselin väri näissä rasterikuvissa esitetään yleensä sekoituksena punaisesta, vihreästä ja sinisestä,
+aivan kuten silmissämme. Toisin sanoen jokaisen pikselin väri tunnistetaan joukolla
+kolmea eri kokonaislukuarvoa. Jokainen kokonaislukuarvo tunnistaa kunkin värin (punainen, vihreä ja sininen) "määrän".
+Esimerkiksi joukko `(199, 78, 70)` tunnistaa värin, joka on lähempänä punaista. Meillä on 199 punaista, 78 vihreää
+ja 70 sinistä. Sitä vastoin joukko `(129, 77, 250)` kuvaa värin, joka on lähempänä violettia. Ja niin edelleen.
+
+
+
+### Kuvat näytetään ylhäältä alas
+
+Tämä ei ole kiveen hakattu sääntö, mutta suuri enemmistö digitaalisista kuvista näytetään ylhäältä
+alas ja vasemmalta oikealle. Useimmat tietokonenäytöt noudattavat myös tätä mallia. Joten kuvan ensimmäiset pikselit
+ovat kuvan ylä- ja vasemmassa kulmassa. Löydät visuaalisen esityksen
+tästä logiikasta @fig-img-display-kuvasta.
+
+Huomaa myös @fig-img-display-kuvassa, että koska rasterikuva on käytännössä 2D-pikselimatriisi,
+kuva on järjestetty pikseliriveihin ja -sarakkeisiin. Sarakkeet määritellään vaakasuuntaisella x-akselilla,
+kun taas rivit määritellään pystysuuntaisella y-akselilla.
+
+Jokainen pikseli (eli harmaat suorakulmiot) @fig-img-display-kuvassa sisältää numeron sisällään.
+Nämä numerot ovat pikselien indeksejä. Voit huomata, että ensimmäiset pikselit ovat ylä- ja vasemmassa
+kulmassa, ja myös, että näiden pikselien indeksit "kasvavat sivuille", tai toisin sanoen ne kasvavat vaakasuuntaisen x-akselin suuntaan.
+Useimmat rasterikuvat on järjestetty pikseliriveinä. Siksi kun nämä digitaaliset kuvat
+näytetään, näyttö näyttää ensimmäisen pikselirivin, sitten toisen rivin, sitten kolmannen rivin jne.
+
+![Miten rasterikuvien pikselit näytetään.](./../Figures/image-display.png){#fig-img-display}
+
+
+
+
+
+
+### Pikselimatriisin esittäminen koodissa {#sec-pixel-repr}
+
+Hyvä, tiedämme jo, että rasterikuvat esitetään 2D-pikselimatriiseina.
+Mutta meillä ei ole käsitettä 2D-matriisista Zigissä. Itse asiassa useimmilla matalan tason kielillä yleensä
+(Zig, C, Rust jne.) ei ole tällaista käsitettä.
+Joten miten voimme esittää tällaisen pikselimatriisin Zigissä tai missä tahansa muussa matalan tason kielessä?
+Strategia, jonka useimmat ohjelmoijat valitsevat tässä tilanteessa, on käyttää tavallista 1D-taulukkoa molempien ulottuvuuksien arvojen tallentamiseen.
+Toisin sanoen luot vain tavallisen 1D-taulukon ja tallennat kaikki arvot molemmista ulottuvuuksista tähän 1D-taulukkoon.
+
+Esimerkkinä oletetaan, että meillä on hyvin pieni kuva mitoin 4x3.
+Koska rasterikuva esitetään 2D-pikselimatriisina ja jokainen pikseli
+esitetään 3 "etumerkittömällä 8-bittisellä" kokonaislukuarvolla, kuvassa on yhteensä 12 pikseliä,
+jotka esitetään $3 \times 12 = 36$ kokonaislukuarvolla.
+Siksi meidän täytyy luoda 36 `u8`-arvon taulukko tallentaaksemme tämän pienen kuvan.
+
+Syy siihen, miksi etumerkittömiä 8-bittisiä kokonaislukuja (`u8`) käytetään kunkin värin määrän esittämiseen
+minkä tahansa muun kokonaislukutyypin sijaan, on se, että ne vievät mahdollisimman vähän tilaa eli
+mahdollisimman vähän bittejä. Tämä auttaa pienentämään kuvan binäärikokoa, eli 2D-matriisia.
+Ne myös välittävät hyvän määrän tarkkuutta ja yksityiskohtia väreistä, vaikka ne voivat esittää
+suhteellisen pienen alueen (0:sta 255:een) "värimääriä".
+
+Palaten alkuperäiseen 4x3-kuvan esimerkkiimme,
+alla esitetty `matrix`-olio voisi olla esimerkki 1D-taulukosta, joka tallentaa
+tämän 4x3-kuvan edustavan datan.
+
+```{zig}
+#| eval: false
+const matrix = [_]u8{
+    201, 10, 25, 185, 65, 70,
+    65, 120, 110, 65, 120, 117,
+    98, 95, 12, 213, 26, 88,
+    143, 112, 65, 97, 99, 205,
+    234, 105, 56, 43, 44, 216,
+    45, 59, 243, 211, 209, 54,
+};
+```
+
+Tämän taulukon kolme ensimmäistä kokonaislukuarvoa ovat kuvan ensimmäisen pikselin värimäärät.
+Seuraavat kolme kokonaislukua ovat toisen pikselin värimäärät.
+Ja sarja jatkuu tällä mallilla. Tämä mielessä taulukon koko, joka tallentaa
+rasterikuvan, on yleensä 3:n kerrannainen. Tässä tapauksessa taulukon koko on 36.
+
+Tarkoitan, että taulukon koko on **yleensä** 3:n kerrannainen, koska tietyissä olosuhteissa
+se voi olla myös 4:n kerrannainen. Tämä tapahtuu, kun rasterikuvaan sisällytetään myös läpinäkyvyysmäärä.
+Toisin sanoen on olemassa erilaisia rasterikuvia,
+jotka käyttävät eri värimallia, joka on RGBA (punainen, vihreä, sininen ja alpha).
+"Alpha" vastaa pikselin läpinäkyvyysmäärää.
+Joten jokainen pikseli RGBA-kuvassa esitetään punaisen, vihreän, sinisen ja alpha-arvojen avulla.
+
+Useimmat rasterikuvat käyttävät standardia RGB-mallia, joten useimmiten
+näet taulukkokoot, jotka ovat 3:n kerrannaisia. Mutta jotkut kuvat, erityisesti ne,
+jotka on tallennettu PNG-tiedostoihin, saattavat käyttää RGBA-mallia ja siksi
+esitetään taulukolla, jonka koko on 4:n kerrannainen.
+
+Meidän tapauksessamme projektimme esimerkkikuva (@fig-pascal) on rasterikuva,
+joka on tallennettu PNG-tiedostoon, ja tämä tietty kuva käyttää RGBA-värimallia. Siksi
+jokainen pikseli kuvassa esitetään 4 eri kokonaislukuarvolla, ja seurauksena
+tämän kuvan tallentamiseen Zig-koodissamme meidän täytyy luoda taulukko, jonka koko on 4:n kerrannainen.
+
+
+## Käyttämämme PNG-kirjasto
+
+Aloitetaan projektimme keskittymällä tarvittavan Zig-koodin kirjoittamiseen
+PNG-tiedoston datan lukemiseen. Toisin sanoen haluamme lukea @fig-pascal-kuvassa esitetyn PNG-tiedoston
+ja jäsentää sen datan poimiaksemme kuvaa edustavan 2D-pikselimatriisin.
+
+Kuten olemme käsitelleet @sec-pixel-repr-osiossa, esimerkkikuvamme tässä
+on PNG-tiedosto, joka käyttää RGBA-värimallia, ja siksi jokainen kuvan pikseli
+esitetään 4 kokonaislukuarvolla. Voit ladata tämän kuvan vierailemalla `ZigExamples/image_filter`-
+[kansiossa tämän kirjan virallisessa repositoriossa](https://github.com/pedropark99/zig-book/tree/main/ZigExamples/image_filter)[^img-filter-folder].
+Löydät tästä kansiosta myös tämän pienen projektin täydellisen lähdekoodin, jota
+kehitymme tässä.
+
+[^img-filter-folder]: <https://github.com/pedropark99/zig-book/tree/main/ZigExamples/image_filter>
+
+On olemassa C-kirjastoja, joita voimme käyttää PNG-tiedostojen lukemiseen ja jäsentämiseen.
+Kuuluisin ja eniten käytetty niistä on `libpng`, joka on "virallinen kirjasto" PNG-tiedostojen lukemiseen ja kirjoittamiseen.
+Vaikka tämä kirjasto on saatavilla useimmissa käyttöjärjestelmissä, se on tunnettu
+monimutkaisuudestaan ja vaikeasta käytöstä.
+
+Siksi käytän tässä projektissa modernimpaa vaihtoehtoa, joka on `libspng`-kirjasto.
+Valitsin käyttää tätä C-kirjastoa, koska se on paljon, paljon yksinkertaisempi käyttää kuin `libpng`,
+ja se tarjoaa myös erittäin hyvän suorituskyvyn kaikille operaatioille. Voit tutustua
+[kirjaston viralliseen verkkosivustoon](https://libspng.org/)[^libspng]
+saadaksesi lisätietoja. Löydät sieltä myös dokumentaatiota, joka saattaa auttaa sinua ymmärtämään ja
+seuraamaan tässä esitettyjä koodiesimerkkejä.
+
+[^libspng]: <https://libspng.org/>
+
+
+Muista ensinnäkin rakentaa ja asentaa tämä `libspng` järjestelmääsi. Sillä
+jos et tee tätä vaihetta, `zig`-kääntäjä ei pysty löytämään tämän kirjaston tiedostoja ja resursseja
+tietokoneeltasi ja linkittämään niitä Zig-lähdekoodiin, jota kirjoitamme yhdessä tässä.
+Kirjaston dokumentaation
+[rakennusosiossa](https://libspng.org/docs/build/)[^lib-build] on hyvää tietoa siitä, miten kirjasto rakennetaan ja asennetaan.
+
+[^lib-build]: <https://libspng.org/docs/build/>
+
+
+
+
+## PNG-tiedoston lukeminen
+
+Jotta voimme poimia pikselidatan PNG-tiedostosta, meidän täytyy lukea ja dekoodata tiedosto.
+PNG-tiedosto on vain binääritiedosto, joka on kirjoitettu "PNG-muodossa". Onneksi `libspng`-kirjasto tarjoaa
+funktion nimeltä `spng_decode_image()`, joka tekee kaiken tämän raskaan työn puolestamme.
+
+Koska `libspng` on C-kirjasto, useimmat tiedosto- ja IO-operaatiot tässä kirjastossa tehdään käyttämällä
+C-osoitinta `FILE`. Siksi on todennäköisesti parempi idea käyttää `fopen()`-C-funktiota
+avaamaan PNG-tiedostomme sen sijaan, että käyttäisimme @sec-filesystem-osiossa esiteltyä `openFile()`-metodia.
+Siksi tuon tässä projektissa `stdio.h`-C-otsikon ja käytän `fopen()`-C-funktiota tiedoston avaamiseen.
+
+Jos katsot alla olevaa katkelmaa, näet, että:
+
+1. avaamme PNG-tiedoston `fopen()`:lla.
+1. luomme `libspng`-kontekstin `spng_ctx_new()`:lla.
+1. käytämme `spng_set_png_file()`:a määrittääksemme `FILE`-objektin, joka lukee käyttämämme PNG-tiedoston.
+
+Jokainen operaatio `libspng`:ssä tehdään "kontekstiobjektin" kautta. Katkelmassamme alla tämä objekti on `ctx`.
+Lisäksi suorittaaksemme operaation PNG-tiedostolle meidän täytyy määrittää, mihin tarkkaan PNG-tiedostoon viittaamme.
+Tämä on `spng_set_png_file()`:n tehtävä. Käytämme tätä funktiota määrittääksemme tiedostokuvaajaobjektin,
+joka lukee käyttämämme PNG-tiedoston.
+
+
+```{zig}
+#| eval: false
+const c = @cImport({
+    @cDefine("_NO_CRT_STDIO_INLINE", "1");
+    @cInclude("stdio.h");
+    @cInclude("spng.h");
+});
+
+const path = "pedro_pascal.png";
+const file_descriptor = c.fopen(path, "rb");
+if (file_descriptor == null) {
+    @panic("Could not open file!");
+}
+const ctx = c.spng_ctx_new(0) orelse unreachable;
+_ = c.spng_set_png_file(
+    ctx, @ptrCast(file_descriptor)
+);
+```
+
+Ennen kuin jatkamme, on tärkeää korostaa seuraavaa: koska olemme avanneet tiedoston `fopen()`:lla,
+meidän täytyy muistaa sulkea tiedosto ohjelman lopussa `fclose()`:lla.
+Toisin sanoen sen jälkeen, kun olemme tehneet kaiken, mitä halusimme tehdä PNG-tiedostolla
+`pedro_pascal.png`, meidän täytyy sulkea tämä tiedosto soveltamalla `fclose()`:a tiedostokuvaajaobjektiin.
+Voimme käyttää myös `defer`-avainsanaa auttamaan tässä tehtävässä, jos haluamme.
+Alla oleva koodikatkelma demonstroi tämän vaiheen:
+
+```{zig}
+#| eval: false
+if (c.fclose(file_descriptor) != 0) {
+    return error.CouldNotCloseFileDescriptor;
+}
+```
+
+
+
+
+### Kuvan otsikko-osan lukeminen
+
+Nyt kontekstiobjekti `ctx` on tietoinen PNG-tiedostostamme `pedro_pascal.png`, koska sillä on pääsy
+tiedostokuvaajaobjektiin tähän tiedostoon. Ensimmäinen asia, jonka teemme, on lukea PNG-tiedoston
+"kuvan otsikko-osio". Tämä "kuvan otsikko-osio" on tiedoston osio,
+joka sisältää joitain perustietoja PNG-tiedostosta, kuten pikselidatan bittisyvyyden,
+tiedostossa käytetyn värimallin, kuvan mitat (korkeus ja leveys pikselien lukumääränä)
+jne.
+
+Helpottaaksemme asioita kapseloin tämän "lue kuvan otsikko" -operaation
+mukavaan ja pieneen funktioon nimeltä `get_image_header()`. Kaikki mitä tämän funktion täytyy tehdä
+on kutsua `spng_get_ihdr()`-funktiota. Tämä `libspng`:n funktio on vastuussa
+kuvan otsikkodatan lukemisesta ja sen tallentamisesta C-structiin nimeltä `spng_ihdr`.
+Siksi `spng_ihdr`-tyypin objekti on C-struct, joka sisältää datan PNG-tiedoston
+kuvan otsikko-osiosta.
+
+Koska tämä Zig-funktio vastaanottaa C-objektin (`libspng`-kontekstiobjektin) syötteenä, merkitsin
+funktioargumentin `ctx` muodossa "osoitin kontekstiobjektiin" (`*c.spng_ctx`), noudattaen
+@sec-pass-c-structs-osiossa käsiteltyjä suosituksia.
+
+```{zig}
+#| eval: false
+fn get_image_header(ctx: *c.spng_ctx) !c.spng_ihdr {
+    var image_header: c.spng_ihdr = undefined;
+    if (c.spng_get_ihdr(ctx, &image_header) != 0) {
+        return error.CouldNotGetImageHeader;
+    }
+
+    return image_header;
+}
+
+var image_header = try get_image_header(ctx);
+```
+
+Huomaa myös tässä funktiossa, että tarkistan, onko `spng_get_ihdr()`-funktiokutsu
+palauttanut kokonaislukuarvon, joka on eri kuin nolla. Useimmat `libspng`-kirjaston funktiot
+palauttavat tilakoodin tuloksena, ja tilakoodi "nolla" tarkoittaa
+"onnistumista". Joten mikä tahansa tilakoodi, joka on eri kuin nolla, tarkoittaa, että virhe
+tapahtui `spng_get_ihdr()`:n suorituksen aikana. Siksi palautan virhearvon
+funktiosta, jos funktion palauttama tilakoodi on eri kuin nolla.
+
+
+### Tilaa varaaminen pikselidatalle
+
+Ennen kuin luemme pikselidatan PNG-tiedostosta, meidän täytyy varata tarpeeksi tilaa tämän datan säilyttämiseen.
+Jotta voimme varata tällaista tilaa, meidän täytyy ensin tietää, kuinka paljon tilaa meidän täytyy varata.
+Kuvan mitat tarvitaan ilmeisesti tämän tilan koon laskemiseen. Mutta on myös
+muita elementtejä, jotka vaikuttavat tähän lukuun, kuten kuvassa käytetty värimalli, bittisyvyys ja muut.
+
+Joka tapauksessa tämä tarkoittaa, että tarvittavan tilan koon laskeminen ei ole yksinkertainen tehtävä.
+Siksi `libspng`-kirjasto tarjoaa apufunktion nimeltä
+`spng_decoded_image_size()` laskemaan tämän koon puolestamme. Jälleen kerran aion
+kapseloida tämän C-funktion ympärillä olevan logiikan mukavaan ja pieneen Zig-funktioon
+nimeltä `calc_output_size()`. Näet alla, että tämä funktio palauttaa mukavan
+kokonaislukuarvon tuloksena, kertoen varattavan tilan koon.
+
+
+```{zig}
+#| eval: false
+fn calc_output_size(ctx: *c.spng_ctx) !u64 {
+    var output_size: u64 = 0;
+    const status = c.spng_decoded_image_size(
+        ctx, c.SPNG_FMT_RGBA8, &output_size
+    );
+    if (status != 0) {
+        return error.CouldNotCalcOutputSize;
+    }
+    return output_size;
+}
+```
+
+
+
+Saatat kysyä itseltäsi, mitä arvo `SPNG_FMT_RGBA8` tarkoittaa. Tämä arvo on itse asiassa enum-
+arvo, joka on määritelty `spng.h`-C-otsikkotiedostossa. Tätä enumia käytetään tunnistamaan "PNG-muoto".
+Tarkemmin sanottuna se tunnistaa PNG-tiedoston, joka käyttää RGBA-värimallia ja 8 bittisyvyyttä.
+Joten antamalla tämän enum-arvon syötteenä `spng_decoded_image_size()`-funktiolle
+sanomme tälle funktiolle laskemaan dekoodatun pikselidatan koon ottaen huomioon
+PNG-tiedoston, joka noudattaa tätä "RGBA-värimalli 8 bittisyvyydellä" -muotoa.
+
+Kun meillä on tämä funktio, voimme käyttää sitä yhdessä allokaattoriobjektin kanssa varataksemme
+tavutaulukon (`u8`-arvot), joka on tarpeeksi suuri tallentamaan kuvan dekoodatun pikselidatan.
+Huomaa, että käytän `@memset()`:a alustamaan koko taulukon nolliksi.
+
+```{zig}
+#| eval: false
+const output_size = try calc_output_size(ctx);
+var buffer = try allocator.alloc(u8, output_size);
+@memset(buffer[0..], 0);
+```
+
+
+### Kuvadatan dekoodaus
+
+Nyt kun meillä on tarvittava tila kuvan dekoodatun pikselidatan säilyttämiseen,
+voimme alkaa todella dekoodata ja poimia tämän pikselidatan kuvasta
+käyttämällä `spng_decode_image()`-C-funktiota.
+
+Alla esitetty `read_data_to_buffer()`-Zig-funktio tiivistää tarvittavat
+vaiheet tämän dekoodatun pikselidatan lukemiseen ja sen tallentamiseen syötepuskuriin.
+Huomaa, että tämä funktio kapseloi logiikan `spng_decode_image()`-funktion ympärillä.
+Käytämme myös `SPNG_FMT_RGBA8`-enum-arvoa jälleen kerran kertoaksemme vastaavalle funktiolle,
+että dekoodattava PNG-kuva käyttää RGBA-värimallia ja 8 bittisyvyyttä.
+
+```{zig}
+#| eval: false
+fn read_data_to_buffer(ctx: *c.spng_ctx, buffer: []u8) !void {
+    const status = c.spng_decode_image(
+        ctx,
+        buffer.ptr,
+        buffer.len,
+        c.SPNG_FMT_RGBA8,
+        0
+    );
+
+    if (status != 0) {
+        return error.CouldNotDecodeImage;
+    }
+}
+```
+
+Kun tämä funktio on käytettävissä, voimme soveltaa sitä kontekstiobjektiimme ja myös
+puskuriobjektiin, jonka varasimme edellisessä osiossa kuvan dekoodatun pikselidatan säilyttämiseen:
+
+```{zig}
+#| eval: false
+try read_data_to_buffer(ctx, buffer[0..]);
+```
+
+
+### Pikselidatan tarkastelu
+
+Nyt kun meillä on pikselidata tallennettuna "puskuriobjektiimme", voimme vilkaista
+tavuja. Alla olevassa esimerkissä katsomme ensimmäisiä
+12 tavua dekoodatussa pikselidatassa.
+
+Jos katsot näitä arvoja tarkasti, saatat huomata, että joka 4. tavu
+sekvenssissä on 255. Mikä sattumalta on suurin mahdollinen kokonaislukuarvo,
+jota `u8`-arvo voi esittää. Joten jos alue 0:sta 255:een, joka on alue
+kokonaislukuarvoille, joita `u8`-arvo voi esittää, voidaan esittää asteikkona 0 %:sta 100 %:iin,
+nämä 255-arvot ovat käytännössä 100 % tällä asteikolla.
+
+Jos muistat @sec-pixel-repr-osiossa, kuvasin siinä osiossa, että `pedro_pascal.png`-PNG-tiedostomme käyttää RGBA-värimallia,
+joka lisää alpha- (tai läpinäkyvyys-)tavun jokaiseen pikseliin kuvassa.
+Seurauksena jokainen pikseli kuvassa esitetään 4 tavulla. Koska katsomme
+tässä kuvan ensimmäisiä 12 tavua, se tarkoittaa, että katsomme datan
+ensimmäisiltä $12 / 4 = 3$ pikseliltä kuvassa.
+
+Joten sen perusteella, miltä nämä ensimmäiset 12 tavua (tai nämä 3 pikseliä) näyttävät, näillä 255-arvoilla joka 4. tavulla, voimme sanoa, että on todennäköistä,
+että jokaisen pikselin alpha (tai läpinäkyvyys) on asetettu 100 %:iin. Tämä ei välttämättä pidä paikkaansa,
+mutta se on todennäköisin mahdollisuus. Lisäksi, jos katsomme itse kuvaa, joka muistat olevan
+esitetty @fig-pascal-kuvassa, näemme, että läpinäkyvyys ei muutu kuvan poikki,
+mikä vahvistaa tätä teoriaa.
+
+
+```{zig}
+#| eval: false
+try stdout.print("{any}\n", .{buffer[0..12]});
+try stdout.flush();
+```
+
+```
+{
+    200, 194, 216, 255, 203, 197,
+    219, 255, 206, 200, 223, 255
+}
+```
+
+
+Näemme yllä olevassa tuloksessa, että tämän kuvan ensimmäisellä pikselillä on 200 punaista, 194 vihreää ja 216 sinistä.
+Mistä tiedän, missä järjestyksessä värit esiintyvät sekvenssissä? Jos et ole vielä arvannut sitä,
+se johtuu RGB-lyhenteestä. Ensin PUNAINEN, sitten VIHREÄ, sitten SININEN. Jos skaalaamme nämä kokonaislukuarvot
+asteikollemme 0 %:sta 100 %:iin (0:sta 255:een), saamme 78 % punaista, 76 % vihreää ja 85 % sinistä.
+
+
+
+## Kuvasuodattimen soveltaminen
+
+Nyt kun meillä on kunkin pikselin data kuvassa, voimme keskittyä soveltamaan kuvasuodatintamme
+näihin pikseleihin. Muista, tavoitteemme tässä on soveltaa harmaasävysuodatinta
+kuvan päälle. Harmaasävysuodatin on suodatin, joka muuntaa värillisen kuvan harmaasävykuvaksi.
+
+On erilaisia kaavoja ja strategioita värillisen kuvan muuntamiseen harmaasävykuvaksi.
+Mutta kaikki nämä eri strategiat sisältävät yleensä jonkin matematiikan soveltamisen kunkin pikselin väreihin.
+Tässä projektissa käytämme yleisintä kaavaa, joka on esitetty alla.
+Tämä kaava pitää $r$:ää pikselin punaisena, $g$:ää vihreänä, $b$:ää sinisenä ja $p'$:ää pikselin
+lineaarisen luminanssin arvona.
+
+$$
+    p' = (0.2126 \times r) + (0.7152 \times g) + (0.0722 \times b)
+$${#eq-grayscale}
+
+Tämä @eq-grayscale on kaava pikselin lineaarisen luminanssin laskemiseen. On syytä huomata, että tämä kaava
+toimii vain kuville, joiden pikselit käyttävät sRGB-väriavaruutta, joka on verkon standardiväriavaruus.
+Siksi ihannetapauksessa kaikkien verkon kuvien pitäisi käyttää tätä väriavaruutta. Onneksi
+tämä on meidän tapauksessamme, eli `pedro_pascal.png`-kuva käyttää tätä sRGB-väriavaruutta, ja seurauksena
+voimme käyttää @eq-grayscale-kaavaa. Voit lukea lisää tästä kaavasta Wikipedian harmaasävy-sivulta [@wiki_grayscale].
+
+Alla esitetty `apply_image_filter()`-funktio tiivistää tarvittavat vaiheet
+@eq-grayscale-kaavan soveltamiseen kuvan pikseleihin. Sovellamme vain tätä funktiota
+puskuriobjektiimme, joka sisältää pikselidatamme, ja tuloksena
+tähän puskuriobjektiin tallennetun pikselidatan pitäisi nyt edustaa kuvamme harmaasävyversiota.
+
+```{zig}
+#| eval: false
+fn apply_image_filter(buffer:[]u8) !void {
+    const len = buffer.len;
+    const red_factor: f16 = 0.2126;
+    const green_factor: f16 = 0.7152;
+    const blue_factor: f16 = 0.0722;
+    var index: u64 = 0;
+    while (index < len) : (index += 4) {
+        const rf: f16 = @floatFromInt(buffer[index]);
+        const gf: f16 = @floatFromInt(buffer[index + 1]);
+        const bf: f16 = @floatFromInt(buffer[index + 2]);
+        const y_linear: f16 = (
+            (rf * red_factor) + (gf * green_factor)
+            + (bf * blue_factor)
+        );
+        buffer[index] = @intFromFloat(y_linear);
+        buffer[index + 1] = @intFromFloat(y_linear);
+        buffer[index + 2] = @intFromFloat(y_linear);
+    }
+}
+
+try apply_image_filter(buffer[0..]);
+```
+
+
+
+## Kuvan harmaasävyversion tallentaminen
+
+Koska meillä on nyt kuvamme harmaasävyversio tallennettuna puskuriobjektiimme,
+meidän täytyy koodata tämä puskuriobjekti takaisin "PNG-muotoon" ja tallentaa koodattu data
+uuteen PNG-tiedostoon tiedostojärjestelmäämme, jotta voimme käyttää ja nähdä kuvamme harmaasävyversion,
+jonka pieni ohjelmamme tuotti.
+
+Tätä varten `libspng`-kirjasto auttaa meitä jälleen tarjoamalla "koodaa data PNG:ksi" -tyyppisen funktion,
+joka on `spng_encode_image()`-funktio. Mutta jotta voimme "koodata data PNG:ksi" `libspng`:llä, meidän täytyy
+luoda uusi kontekstiobjekti. Tämän uuden kontekstiobjektin täytyy käyttää "enkooderikontekstia", joka
+tunnistetaan enum-arvolla `SPNG_CTX_ENCODER`.
+
+Alla esitetty `save_png()`-funktio tiivistää kaikki tarvittavat vaiheet kuvamme harmaasävyversion
+tallentamiseen uuteen PNG-tiedostoon tiedostojärjestelmään. Oletuksena tämä
+funktio tallentaa harmaasävykuvan tiedostoon nimeltä `pedro_pascal_filter.png` nykyiseen työhakemistoon.
+
+Huomaa tässä koodiesimerkissä, että käytämme samaa kuvan otsikko-objektia (`image_header`), jonka olemme
+keränneet aiemmin `get_image_header()`-funktiolla. Muista, että tämä kuvan otsikko-objekti
+on C-struct (`spng_ihdr`), joka sisältää perustietoja PNG-tiedostostamme, kuten
+kuvan mitat, käytetty värimalli jne.
+
+Jos haluaisimme tallentaa hyvin erilaisen kuvan tähän uuteen PNG-tiedostoon, esim. kuvan
+eri mitoilla tai kuvan, joka käyttää eri värimallia, eri bittisyvyyttä jne.,
+meidän täytyisi luoda uusi kuvan otsikko (`spng_ihdr`)-objekti, joka kuvaa tämän uuden kuvan ominaisuuksia.
+
+Mutta tallennamme käytännössä saman kuvan, jolla aloitimme (kuvan mitat,
+värimalli jne. ovat kaikki edelleen samat). Ainoa ero
+kahden kuvan välillä on pikselien värit, jotka ovat nyt "harmaan sävyjä".
+Seurauksena voimme turvallisesti käyttää täsmälleen samaa kuvan otsikkodataa tässä uudessa PNG-tiedostossa.
+
+
+
+```{zig}
+#| eval: false
+fn save_png(image_header: *c.spng_ihdr, buffer: []u8) !void {
+    const path = "pedro_pascal_filter.png";
+    const file_descriptor = c.fopen(path.ptr, "wb");
+    if (file_descriptor == null) {
+        return error.CouldNotOpenFile;
+    }
+    const ctx = (
+        c.spng_ctx_new(c.SPNG_CTX_ENCODER)
+        orelse unreachable
+    );
+    defer c.spng_ctx_free(ctx);
+    _ = c.spng_set_png_file(ctx, @ptrCast(file_descriptor));
+    _ = c.spng_set_ihdr(ctx, image_header);
+
+    const encode_status = c.spng_encode_image(
+        ctx,
+        buffer.ptr,
+        buffer.len,
+        c.SPNG_FMT_PNG,
+        c.SPNG_ENCODE_FINALIZE
+    );
+    if (encode_status != 0) {
+        return error.CouldNotEncodeImage;
+    }
+    if (c.fclose(file_descriptor) != 0) {
+        return error.CouldNotCloseFileDescriptor;
+    }
+}
+
+try save_png(&image_header, buffer[0..]);
+```
+
+Kun suoritamme tämän `save_png()`-funktion, meillä pitäisi olla uusi PNG-tiedosto
+nykyisessä työhakemistossamme, nimeltä `pedro_pascal_filter.png`. Jos avaamme tämän PNG-tiedoston,
+näemme saman kuvan, joka on esitetty @fig-pascal-gray-kuvassa.
+
+
+## Projektin rakentaminen
+
+Nyt kun olemme kirjoittaneet koodin, keskustellaan siitä, miten voimme rakentaa/kääntää tämän projektin.
+Tätä varten aion luoda `build.zig`-tiedoston projektimme juurihakemistoon
+ja aloittaa tarvittavan koodin kirjoittamisen projektin kääntämiseksi käyttäen tietoa,
+jonka olemme hankkineet @sec-build-system-osiossa.
+
+
+Luomme ensin build-kohteen suoritettavalle tiedostollemme, joka suorittaa
+Zig-koodimme. Oletetaan, että kaikki Zig-koodimme on kirjoitettu Zig-moduuliin
+nimeltä `image_filter.zig`. Alla olevassa build-skriptissä `exe`-olio
+kuvaa build-kohdetta suoritettavalle tiedostollemme.
+
+Koska olemme käyttäneet C-koodia `libspng`-kirjastosta Zig-koodissamme,
+meidän täytyy linkittää Zig-koodimme (joka on `exe`-build-kohteessa) sekä
+C-standardikirjastoon että `libspng`-kirjastoon. Teemme sen kutsumalla
+`linkLibC()`- ja `linkSystemLibrary()`-metodeja `exe`-build-kohteestamme.
+
+```{zig}
+#| eval: false
+const std = @import("std");
+pub fn build(b: *std.Build) void {
+    const exe = b.addExecutable(.{
+        .name = "image_filter",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/image_filter.zig"),
+            .target = b.graph.host,
+            .link_libc = true
+        })
+    });
+    // Link to libspng library:
+    exe.root_module.linkSystemLibrary("spng", .{});
+    // Link to math library:
+    exe.root_module.linkSystemLibrary("m", .{});
+    b.installArtifact(exe);
+}
+```
+
+Koska käytämme `linkSystemLibrary()`-metodia, se tarkoittaa, että `libspng`:n
+kirjastotiedostoja etsitään järjestelmästäsi linkitettäväksi `exe`-build-kohteeseen.
+Jos et ole vielä rakentanut ja asentanut `libspng`-kirjastoa järjestelmääsi, tämä
+linkitysvaihe todennäköisesti ei toimi. Sillä se ei löydä kirjastotiedostoja järjestelmästäsi.
+
+Joten muista asentaa `libspng` järjestelmääsi, jos haluat rakentaa tämän projektin.
+Kun yllä oleva build-skripti on kirjoitettu, voimme vihdoin rakentaa projektimme
+suorittamalla `zig build` -komennon terminaalissa.
+
+```bash
+zig build
+```
