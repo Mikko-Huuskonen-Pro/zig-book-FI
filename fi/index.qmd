@@ -1,0 +1,32 @@
+---
+engine: knitr
+knitr: true
+syntax-definition: "../Assets/zig.xml"
+translation:
+  source: index.qmd
+  source_sha256: ""
+  status: draft
+---
+
+```{r}
+#| include: false
+source("../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "run"
+)
+```
+
+:::: {.content-hidden when-format="epub"}
+::: {.content-hidden when-format="pdf"}
+
+# Tervetuloa {.unnumbered}
+
+Tervetuloa! Tämä on avoimen pääsyn HTML-versio kirjasta *Johdatus Zig:iin: projektipohjainen kirja*.
+Alkuperäisen kirjan on kirjoittanut [Pedro Duarte Faria](https://pedro-faria.netlify.app/);
+tämä suomenkielinen versio on käännöstyö.
+
+> **Huom:** Suomennos on kesken. Katso käännöksen tila: `scripts/translation-status.sh`
+
+:::
+::::

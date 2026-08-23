@@ -1,5 +1,7 @@
 # Introduction to Zig
 
+> **Suomenkielinen fork:** Tämä repositorio sisältää kirjan suomennoksen. Katso [TRANSLATION.md](TRANSLATION.md) rakenteesta, upstream-synkronoinnista ja julkaisusta.
+
 <a href=""><img src="Cover/cover-artv3.png" width="250" height="366" class="cover" align="right"/></a>
 
 Hey! This is the official repository for the book "Introduction to Zig: a project-based book", written by Pedro Duarte Faria.
