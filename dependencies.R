@@ -4,6 +4,7 @@ install.packages(
     "knitr",
     "rmarkdown",
     "stringr",
+    "fs",
     "gt",
     "tibble"
   ),

@@ -350,6 +350,59 @@ get_build_type <- function(options) {
 }
 
 
+#' Find the repository root that contains `zig_engine.R`.
+find_repo_root <- function() {
+  dirs <- character()
+
+  if (requireNamespace("knitr", quietly = TRUE)) {
+    input_dir <- tryCatch(knitr::current_input(dir = TRUE), error = function(e) NULL)
+    if (!is.null(input_dir) && nzchar(input_dir)) {
+      dirs <- c(
+        input_dir,
+        dirname(input_dir),
+        dirname(dirname(input_dir)),
+        dirs
+      )
+    }
+  }
+
+  dirs <- c(
+    dirs,
+    getwd(),
+    file.path(getwd(), ".."),
+    file.path(getwd(), "../.."),
+    file.path(getwd(), "../../..")
+  )
+
+  for (dir in unique(dirs[nzchar(dirs)])) {
+    if (file.exists(file.path(dir, "zig_engine.R"))) {
+      return(normalizePath(dir))
+    }
+  }
+
+  stop("Cannot find repository root (zig_engine.R).")
+}
+
+
+#' Pick the working directory Zig examples expect for relative file paths.
+get_zig_workdir <- function(zig_code) {
+  repo_root <- find_repo_root()
+  if (grepl("../ZigExamples", zig_code, fixed = TRUE)) {
+    return(file.path(repo_root, "Chapters"))
+  }
+  repo_root
+}
+
+
+#' Run an expression with the Zig working directory temporarily changed.
+with_zig_workdir <- function(zig_code, expr) {
+  old_wd <- getwd()
+  on.exit(setwd(old_wd), add = TRUE)
+  setwd(get_zig_workdir(zig_code))
+  force(expr)
+}
+
+
 
 #' Zig knitr engine.
 #'
@@ -427,7 +480,7 @@ zig_run <- function(zig_code, options) {
   }
 
   file_path <- write_zig(zig_code)
-  output <- zig_compile_file(file_path, "run")
+  output <- with_zig_workdir(zig_code, zig_compile_file(file_path, "run"))
   fs::file_delete(file_path)
   return(output)
 }
@@ -453,7 +506,7 @@ zig_build_lib <- function(zig_code, options) {
   }
 
   file_path <- write_zig(zig_code)
-  output <- zig_compile_file(file_path, "build-lib")
+  output <- with_zig_workdir(zig_code, zig_compile_file(file_path, "build-lib"))
   clean_lib_files()
   fs::file_delete(file_path)
   return(output)
@@ -474,7 +527,7 @@ zig_build_lib <- function(zig_code, options) {
 #'     (i.e., the output of the executable compiled from this Zig code).
 zig_test <- function(zig_code, options) {
   file_path <- write_zig(zig_code)
-  output <- zig_compile_file(file_path, "test")
+  output <- with_zig_workdir(zig_code, zig_compile_file(file_path, "test"))
   fs::file_delete(file_path)
   return(output)
 }
@@ -500,7 +553,7 @@ zig_ast_check <- function(zig_code, options) {
   }
 
   file_path <- write_zig(zig_code)
-  output <- zig_compile_file(file_path, "ast-check")
+  output <- with_zig_workdir(zig_code, zig_compile_file(file_path, "ast-check"))
   fs::file_delete(file_path)
   return(output)
 }
