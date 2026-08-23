@@ -31,6 +31,7 @@ jobs:
             any::knitr
             any::rmarkdown
             any::stringr
+            any::fs
             any::gt
             any::tibble
           needs: check
@@ -45,6 +46,9 @@ jobs:
           ZIG_DIR="$PWD/zig-x86_64-linux-${ZIG_VERSION}"
           echo "$ZIG_DIR" >> "$GITHUB_PATH"
           "$ZIG_DIR/zig" version
+
+      - name: Verify build prerequisites
+        run: Rscript scripts/verify-build-prereqs.R
 
       - name: Render Finnish book
         working-directory: fi
