@@ -1,0 +1,339 @@
+---
+translation:
+  source: Chapters/03-unittests.qmd
+  source_sha256: a267f2f033e2817e91fe9c35c42cb9f13c45c640a904ca9ce5bb6ae8c93fee15
+  status: complete
+---
+
+engine: knitr
+knitr: true
+syntax-definition: "../../Assets/zig.xml"
+---
+
+```{r}
+#| include: false
+source("../../zig_engine.R")
+knitr::opts_chunk$set(
+    auto_main = FALSE,
+    build_type = "lib"
+)
+```
+
+
+
+# Yksikkötestit {#sec-unittests}
+
+Tässä luvussa haluan syventyä siihen, miten yksikkötestit tehdään
+Zigissä. Puhumme Zigin testausworkflow'sta ja
+myös `zig`-kääntäjän `test`-komennosta.
+
+
+## `test`-lohkon esittely
+
+Zigissä yksikkötestit kirjoitetaan `test`-ilmoituksen sisään, tai kuten mieluummin kutsun sitä, `test`-lohkon sisään.
+Jokainen `test`-lohko kirjoitetaan käyttämällä avainsanaa `test`.
+Voit halutessasi käyttää merkkijonoliteraalia kirjoittaaksesi tunnisteen, joka vastaa
+tietyn `test`-lohkon sisällä kirjoittamiesi yksikkötestien ryhmän tunnistamisesta.
+
+Alla olevassa esimerkissä testaamme, ovatko kahden olion (`a` ja `b`) summa
+yhtä suuri kuin 4. Zig Standard Libraryn `expect()`-funktio
+on funktio, joka saa syötteenä loogisen testin. Jos tämä looginen testi
+tuottaa tuloksen `true`, testi läpäisee. Jos se tuottaa
+tuloksen `false`, testi epäonnistuu.
+
+Voit kirjoittaa mitä tahansa Zig-koodia `test`-lohkon sisään.
+Osa tästä koodista voi olla tarpeellisia komentoja testausympäristön
+alustamiseen tai vain olioiden alustamiseen, joita tarvitset
+yksikkötesteissäsi.
+
+```{zig}
+#| build_type: "test"
+const std = @import("std");
+const expect = std.testing.expect;
+test "testing simple sum" {
+    const a: u8 = 2;
+    const b: u8 = 2;
+    try expect((a + b) == 4);
+}
+```
+
+Voit kirjoittaa useita `test`-lohkoja samaan Zig-moduuliin.
+Voit myös sekoittaa `test`-lohkoja lähdekoodiisi ilman ongelmia
+tai seurauksia. Jos sekoitat `test`-lohkoja normaaliin lähdekoodiisi,
+kun suoritat `build`-, `build-exe`-, `build-obj`- tai `build-lib`-komentoja
+`zig`-kääntäjältä, jotka esittelimme kohdassa @sec-compile-code, nämä `test`-lohkot jätetään automaattisesti
+kääntäjän huomiotta.
+
+Toisin sanoen `zig`-kääntäjä kääntää ja suorittaa yksikkötestisi vain
+kun pyydät sitä tekemään niin. Oletuksena kääntäjä aina jättää huomiotta `test`-
+lohkot Zig-moduuleissasi. Kääntäjä tarkistaa normaalisti vain, onko
+näissä `test`-lohkoissa syntaksivirheitä.
+
+Jos katsot useimpien Zig Standard Libraryn tiedostojen lähdekoodia[^zig-std-lib], näet, että `test`-lohkot
+on kirjoitettu yhdessä kirjaston normaalin lähdekoodin kanssa.
+Näet tämän esimerkiksi [`array_list`-moduulissa](https://codeberg.org/ziglang/zig/src/branch/master/lib/std/array_list.zig)[^zig-array].
+Zig-kehittäjien päättämä standardi on siis
+pitää yksikkötestit yhdessä sen toiminnallisuuden lähdekoodin kanssa, jota ne testaavat.
+
+Jokaisella ohjelmoijalla voi olla eri mielipide tästä.
+Jotkut saattavat mieluummin pitää yksikkötestit erillään sovelluksensa varsinaisesta
+lähdekoodista. Jos näin on sinun kohdallasi, voit
+yksinkertaisesti luoda erillisen `tests`-kansion projektiisi ja
+aloittaa Zig-moduulien kirjoittamisen, jotka sisältävät vain yksikkötestejä (kuten tekisit normaalisti
+Python-projektissa `pytest`:llä, esimerkiksi), ja kaikki toimii hyvin.
+Kyse on lopulta siitä, mikä on sinun mieltymyksesi.
+
+[^zig-std-lib]: <https://codeberg.org/ziglang/zig/src/branch/master/lib/std>
+[^zig-array]: <https://codeberg.org/ziglang/zig/src/branch/master/lib/std/array_list.zig>
+
+
+## Testien suorittaminen
+
+Jos `zig`-kääntäjä jättää oletuksena huomiotta kaikki `test`-lohkot, miten voit
+kääntää ja suorittaa yksikkötestisi? Vastaus on `zig`-kääntäjän `test`-komento. Suorittamalla `zig test` -komennon kääntäjä
+löytää jokaisen `test`-lohkon esiintymän Zig-moduuleistasi ja
+kääntää ja suorittaa kirjoittamasi yksikkötestit.
+
+
+```bash
+zig test simple_sum.zig
+```
+
+```
+1/1 simple_sum.test.testing simple sum... OK
+All 1 tests passed.
+```
+
+
+## Muistinallokaatioiden testaaminen
+
+Yksi Zigin eduista on, että se tarjoaa loistavia työkaluja,
+jotka auttavat meitä ohjelmoijia välttämään (mutta myös havaitsemaan) muistiongelmia, kuten
+muistivuotoja ja kaksoisvapautuksia. `defer`-avainsana
+on erityisen hyödyllinen tässä suhteessa.
+
+Kehittäessäsi lähdekoodiasi sinä, ohjelmoija, olet vastuussa siitä, että
+koodisi ei tuota tällaisia ongelmia. Voit kuitenkin myös käyttää erityistä allokaattorioliota Zigissä,
+joka pystyy automaattisesti havaitsemaan tällaiset ongelmat puolestasi.
+Tämä on `std.testing.allocator`-olio.
+Tämä allokaattoriolio tarjoaa joitakin perusmuistiturvallisuuden havaitsemisominaisuuksia,
+jotka pystyvät havaitsemaan muistivuodot.
+
+Kuten kuvasimme kohdassa @sec-heap, muistin allokoimiseksi keolle sinun täytyy
+käyttää allokaattorioliota, ja funktioidesi, jotka käyttävät näitä olioita muistin allokoimiseen
+keolle, tulisi saada allokaattoriolio yhtenä syötteistään.
+Jokainen keolle allokoimasi muisti
+täytyy myös vapauttaa samalla allokaattorioliolla.
+
+Joten jos haluat testata funktioidesi suorittamia muistinallokaatioita
+ja varmistaa, ettei näissä allokaatioissa ole ongelmia, voit yksinkertaisesti
+kirjoittaa yksikkötestejä näille funktioille, joissa annat
+`std.testing.allocator`-olion syötteenä näille funktioille.
+
+Katso alla olevaa esimerkkiä, jossa määritän funktion, joka aiheuttaa selvästi
+muistivuodon. Koska allokoimme muistia, mutta samalla
+emme vapauta tätä allokoitua muistia missään vaiheessa. Joten kun funktio
+palaa, menetämme viitteen `buffer`-olioon, joka sisältää
+allokoidun muistin, ja seurauksena emme voi enää vapauttaa tätä muistia.
+
+Huomaa, että `test`-lohkon sisällä suoritan tämän funktion
+`std.testing.allocator`-oliolla. Allokaattoriolio pystyi
+katsomaan syvemmälle ohjelmassamme ja havaitsemaan muistivuodon. Seurauksena
+tämä allokaattoriolio palauttaa virheilmoituksen "memory leaked" ja myös
+pinon jäljityksen, joka näyttää tarkan kohdan, jossa muisti vuoti.
+
+```{zig}
+#| eval: false
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+fn some_memory_leak(allocator: Allocator) !void {
+    const buffer = try allocator.alloc(u32, 10);
+    _ = buffer;
+    // Return without freeing the
+    // allocated memory
+}
+
+test "memory leak" {
+    const allocator = std.testing.allocator;
+    try some_memory_leak(allocator);
+}
+```
+
+```
+Test [1/1] leak_memory.test.memory leak...
+    [gpa] (err): memory address 0x7c1fddf39000 leaked:
+./ZigExamples/debugging/leak_memory.zig:4:39: 0x10395f2
+    const buffer = try allocator.alloc(u32, 10);
+                                      ^
+./ZigExamples/debugging/leak_memory.zig:12:25: 0x10398ea
+    try some_memory_leak(allocator);
+
+... more stack trace
+```
+
+
+## Virheiden testaaminen
+
+Yksi yleinen yksikkötestien tyyli on sellainen, joka etsii
+tiettyjä virheitä funktioistasi. Toisin sanoen kirjoitat
+yksikkötestin, joka yrittää varmistaa, palauttaako tietty funktiokutsu
+jonkin virheen tai tietyn tyyppisen virheen.
+
+C++:ssa kirjoittaisit normaalisti tämän tyyppisiä yksikkötestejä käyttäen esimerkiksi
+funktioita `REQUIRE_THROWS()` tai `CHECK_THROWS()` [`Catch2`-testikehyksestä](https://github.com/catchorg/Catch2/tree/devel)[^catch2].
+Python-projektissa käyttäisit todennäköisesti
+[`raises()`-funktiota `pytest`:stä](https://docs.pytest.org/en/7.1.x/reference/reference.html#pytest-raises)[^pytest].
+Rustissa käyttäisit todennäköisesti `assert_eq!()` yhdessä `Err()`:n kanssa.
+
+[^pytest]: <https://docs.pytest.org/en/7.1.x/reference/reference.html#pytest-raises>
+[^catch2]: <https://github.com/catchorg/Catch2/tree/devel>
+
+
+Mutta Zigissä käytämme `expectError()`-funktiota `std.testing`-moduulista.
+Tällä funktiolla voit testata, palauttaako tietty funktiokutsu juuri sen
+virhetyypin, jonka odotat sen palauttavan. Käyttääksesi tätä funktiota kirjoitat ensin
+`try expectError()`. Sitten ensimmäisessä argumentissa annat sen virhetyypin, jonka
+odotat funktiokutsulta. Sitten toisessa argumentissa kirjoitat
+funktiokutsun, jonka odotat epäonnistuvan.
+
+Alla oleva koodiesimerkki osoittaa tämän tyyppisen yksikkötestin Zigissä.
+Huomaa, että funktion `alloc_error()` sisällä allokoimme
+100 tavua muistia tai 100 elementin taulukon oliolle `ibuffer`. Kuitenkin
+`test`-lohkossa käytämme `FixedBufferAllocator()`
+-allokaattorioliota, joka on rajoitettu 10 tavuun tilaa, koska
+olio `buffer`, jonka annoimme allokaattorioliolle,
+sisältää vain 10 tavua tilaa.
+
+Siksi funktio `alloc_error()` nostaa tässä tapauksessa `OutOfMemory`-virheen.
+Koska tämä funktio yrittää allokoida enemmän tilaa kuin allokaattoriolio
+sallii.
+Eli pohjimmiltaan testaamme tiettyä virhetyyppiä,
+joka on `OutOfMemory`. Jos funktio `alloc_error()` palauttaisi jonkin muun virhetyypin,
+`expectError()`-funktio saisi koko testin epäonnistumaan.
+
+
+```{zig}
+#| build_type: "test"
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const expectError = std.testing.expectError;
+fn alloc_error(allocator: Allocator) !void {
+    var ibuffer = try allocator.alloc(u8, 100);
+    defer allocator.free(ibuffer);
+    ibuffer[0] = 2;
+}
+
+test "testing error" {
+    var buffer: [10]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+    try expectError(error.OutOfMemory, alloc_error(allocator));
+}
+```
+
+
+
+
+## Yksinkertaisten yhtäsuuruuksien testaaminen
+
+Zigissä on useita eri tapoja testata yhtäsuuruutta.
+Olet jo nähnyt, että voimme käyttää `expect()`-funktiota loogisen operaattorin `==` kanssa
+toistaaksemme käytännössä yhtäsuuruustestin. Mutta meillä on myös
+muita apufunktioita, jotka sinun tulisi tuntea, erityisesti
+`expectEqual()`, `expectEqualSlices()` ja `expectEqualStrings()`.
+
+
+`expectEqual()`-funktio on, kuten nimestä voi päätellä, klassinen
+yhtäsuuruustestifunktio. Se saa syötteenä kaksi oliota. Ensimmäinen
+olio on arvo, jonka odotat olevan toisessa oliossa.
+Toinen olio on olio, joka sinulla on, tai olio, jonka sovelluksesi
+tuotti tuloksena. Eli `expectEqual()`-funktiolla testaat käytännössä,
+ovatko näiden kahden olion sisällä olevat arvot
+yhtä suuret vai eivät.
+
+Näet alla olevasta esimerkistä, että `expectEqual()`-funktion suorittama testi epäonnistui.
+Koska oliot `v1` ja `v2` sisältävät
+eri arvot.
+
+```{zig}
+#| eval: false
+const std = @import("std");
+test "values are equal?" {
+    const v1 = 15;
+    const v2 = 18;
+    try std.testing.expectEqual(v1, v2);
+}
+```
+
+```
+1/1 ve.test.values are equal?...
+    expected 15, found 18
+    FAIL (TestExpectedEqual)
+ve.zig:5:5: test.values are equal? (test)
+    try std.testing.expectEqual(v1, v2);
+    ^
+0 passed; 0 skipped; 1 failed.
+```
+
+
+Vaikka hyödyllinen, `expectEqual()`-funktio ei toimi taulukoiden kanssa.
+Testataksesi, ovatko kaksi taulukkoa yhtä suuret, sinun tulisi käyttää `expectEqualSlices()`-
+funktiota. Tällä funktiolla on kolme argumenttia. Ensin annat
+molemmissa vertailemissasi taulukoissa olevan datatyypin.
+Toinen ja kolmas argumentti vastaavat taulukko-olioita, joita haluat vertailla.
+
+Alla olevassa esimerkissä käytämme tätä funktiota testataksemme, ovatko kaksi taulukko-
+oliota (`array1` ja `array2`) yhtä suuret vai eivät. Koska ne
+ovat tosiasiassa yhtä suuret, yksikkötesti läpäisi ilman virheitä.
+
+```{zig}
+#| build_type: "test"
+const std = @import("std");
+test "arrays are equal?" {
+    const array1 = [3]u32{1, 2, 3};
+    const array2 = [3]u32{1, 2, 3};
+    try std.testing.expectEqualSlices(
+        u32, &array1, &array2
+    );
+}
+```
+
+
+Lopuksi saatat myös haluta käyttää `expectEqualStrings()`-funktiota.
+Kuten nimestä voi päätellä, voit käyttää tätä funktiota testataksesi, ovatko kaksi merkkijonoa
+yhtä suuret vai eivät. Anna vain kaksi vertailemaasi merkkijonooliota
+funktion syötteinä.
+
+Jos funktio löytää eroja kahden merkkijonon välillä,
+funktio nostaa virheen ja tulostaa myös virheilmoituksen,
+joka näyttää tarkan eron kahden annetun merkkijonoolion välillä,
+kuten alla oleva esimerkki osoittaa:
+
+
+```{zig}
+#| eval: false
+const std = @import("std");
+test "strings are equal?" {
+    const str1 = "hello, world!";
+    const str2 = "Hello, world!";
+    try std.testing.expectEqualStrings(
+        str1, str2
+    );
+}
+```
+
+```
+1/1 t.test.strings are equal?...
+====== expected this output: =========
+hello, world!␃
+======== instead found this: =========
+Hello, world!␃
+======================================
+First difference occurs on line 1:
+expected:
+hello, world!
+^ ('\x68')
+found:
+Hello, world!
+^ ('\x48')
+```
