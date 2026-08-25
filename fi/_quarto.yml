@@ -39,7 +39,9 @@ book:
     - Chapters/15-vectors.qmd
     - Chapters/references.qmd
 
-bibliography: ../Assets/references.bib
+bibliography:
+  - Assets/references-fi.bib
+  - ../Assets/references.bib
 execute:
   freeze: auto
 

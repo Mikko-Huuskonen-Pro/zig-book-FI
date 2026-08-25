@@ -601,13 +601,13 @@ HTTP-otsikot muuttaa tapaa, jolla palvelin vastaa pyyntöön
 asiakkaan lähettämä.
 
 Esimerkiksi monet tosielämässä kohtaamamme pyynnöt tulevat mukana
-HTTP-otsikko nimeltä `Accept`. Tässä otsikossa on luettelo [MIME-tyypeistä](https://en.wikipedia.org/wiki/Media_type)[^mime].
+HTTP-otsikko nimeltä `Accept`. Tässä otsikossa on luettelo [MIME-tyypeistä](https://fi.wikipedia.org/wiki/MIME)[^mime].
 Tämä luettelo ilmaisee tiedostomuodot, joita asiakas voi lukea, jäsentää tai tulkita.
 Toisin sanoen tulkitset tämän otsikon myös siten, että asiakas sanoo seuraavan lauseen
 palvelimelle: "Hei! Katsokaa, voin lukea vain HTML-dokumentteja, joten lähetä minulle takaisin
 asiakirja, joka on HTML-muodossa."
 
-[^mime]: https://en.wikipedia.org/wiki/Media_type.
+[^mime]: https://fi.wikipedia.org/wiki/MIME.
 
 Jos HTTP-palvelin voi lukea ja käyttää tätä `Accept`-otsikkoa, palvelin voi tunnistaa
 mikä on asiakkaalle lähetettävän asiakirjan paras tiedostomuoto. Ehkä HTTP-palvelimella on
