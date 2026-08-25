@@ -135,9 +135,9 @@ Tällaiset oliot tulisi tallentaa kekomuistitilaan, joka on dynaaminen muistitil
 
 Pino on muistityyppi, joka hyödyntää *pinotietorakennetta*, mistä nimi juontuu.
 "Pino" on *tietorakenne*, joka käyttää "last in, first out" (LIFO) -mekanismia arvojen tallentamiseen. Oletan, että tunnet tämän tietorakenteen.
-Jos et tunne, [Wikipedia-sivu](https://en.wikipedia.org/wiki/Stack_(abstract_data_type))[^wiki-stack] tai [Geeks For Geeks -sivu](https://www.geeksforgeeks.org/stack-data-structure/)[^geek-stack] ovat molemmat erinomaisia ja helppoja resursseja tietorakenteen ymmärtämiseen.
+Jos et tunne, [Wikipedia-sivu](https://fi.wikipedia.org/wiki/Pino)[^wiki-stack] tai [Geeks For Geeks -sivu](https://www.geeksforgeeks.org/stack-data-structure/)[^geek-stack] ovat molemmat erinomaisia ja helppoja resursseja tietorakenteen ymmärtämiseen.
 
-[^wiki-stack]: <https://en.wikipedia.org/wiki/Stack_(abstract_data_type)>
+[^wiki-stack]: <https://fi.wikipedia.org/wiki/Pino>
 [^geek-stack]: <https://www.geeksforgeeks.org/stack-data-structure/>
 
 Pinomuistitila on muistityyppi, joka tallentaa arvoja pinotietorakennetta käyttäen.

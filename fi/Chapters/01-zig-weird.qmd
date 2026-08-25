@@ -196,7 +196,7 @@ Katsotaanpa `root.zig`-tiedostoa.
 Olet ehkä huomannut, että jokainen lausekkeen sisältävä koodirivi päättyy puolipisteeseen (`;`).
 Tämä noudattaa C-perheen ohjelmointikielen [^c-family] syntaksia.
 
-[^c-family]: <https://en.wikipedia.org/wiki/List_of_C-family_programming_languages>
+[^c-family]: <https://fi.wikipedia.org/wiki/Ohjelmointikieli#C-perheen_ohjelmointikielet>
 
 Huomaa myös `@import()`-kutsu ensimmäisillä riveillä. Käytämme tätä sisäänrakennettua toimintoa
 tuodaksesi toimintoja muista Zig-moduuleista nykyiseen moduuliimme.
