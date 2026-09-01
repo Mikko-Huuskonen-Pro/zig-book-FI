@@ -263,7 +263,7 @@ Olemme puhuneet kolmesta keskeisestä vaihtoehdosta, jotka asetetaan, kun luot u
 Mutta on myös neljäs vaihtoehto, jolla voit asettaa tämän kohdeobjektin rakennustilan,
 joka on `optimize` vaihtoehto.
 Tätä vaihtoehtoa kutsutaan tällä tavalla, koska Zigin rakennustiloja käsitellään enemmän
-"optimointi vs turvallisuus" -ongelma. Optimoinnilla on siis tässä tärkeä rooli.
+"optimointi vs turvallisuus" -ongelmana. Optimoinnilla on siis tässä tärkeä rooli.
 Älä huoli, palaan tähän kysymykseen hyvin pian.
 
 Zigissä meillä on neljä rakennustilaa (jotka on lueteltu alla). Jokainen näistä rakennustiloista tarjoaa
