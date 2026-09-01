@@ -217,9 +217,8 @@ jokainen C/C++-koodi on kannettava tai tuettu kaikissa käyttöjärjestelmissä,
 aiheuttaisi rakennusvirheen C/C++-kääntäjässä.
 
 
-Nyt yksi tärkeä yksityiskohta rakennusprosessissa on, että sinun on **explicitly
-install the kohdeobjektis that you create in your build script** käyttämällä
-`Build`-rakenteen `installArtifact()`-menetelmä.
+Nyt yksi tärkeä yksityiskohta rakennusprosessissa on, että sinun on **asennettava nimenomaisesti ne kohdeobjektit, jotka luot rakennusskriptissäsi** käyttämällä
+`Build`-rakenteen `installArtifact()`-menetelmää.
 
 Aina kun käynnistät projektisi rakennusprosessin kutsumalla komennon `build`
 `zig`-kääntäjän juureen luodaan uusi hakemisto nimeltä `zig-out`
